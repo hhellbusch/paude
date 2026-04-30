@@ -168,10 +168,65 @@ if tmux -u has-session -t "$AGENT_SESSION_NAME" 2>/dev/null; then
     attach_to_session reconnect
 else
     echo "Starting new $AGENT_NAME session..."
+
+    # Build a launcher script on disk before starting tmux.
+    # Avoids the core quoting hazard: if AGENT_ARGS contains backticks, embedded
+    # quotes, or newlines, expanding $AGENT_ARGS directly inside a tmux send-keys
+    # "..." string causes the HOST shell to mangle or execute the content before
+    # tmux sees it.  Writing a script file and passing only its safe path to
+    # send-keys sidesteps all of that.
+    LAUNCHER_FILE="/tmp/paude-launcher-$$.sh"
+
+    if [[ "${PAUDE_HEADLESS:-0}" == "1" ]] && [[ "$AGENT_NAME" == "claude" ]]; then
+        # --- Headless Claude: stream-json + tee to events file ---
+        EVENTS_FILE="$WORKSPACE/.paude-events.jsonl"
+
+        # Split AGENT_ARGS into: base flags (everything before -p) and prompt content.
+        # If there is no -p flag, treat all of AGENT_ARGS as base flags.
+        if [[ "$AGENT_ARGS" == *" -p "* ]] || [[ "$AGENT_ARGS" == "-p "* ]]; then
+            # Extract everything before the first -p as base flags
+            BASE_FLAGS="${AGENT_ARGS%% -p *}"
+            if [[ "$BASE_FLAGS" == "$AGENT_ARGS" ]]; then
+                # AGENT_ARGS starts with "-p "
+                BASE_FLAGS=""
+            fi
+            # Extract everything after the first -p  as prompt content
+            PROMPT_CONTENT="${AGENT_ARGS#*-p }"
+            # Write prompt content to file — printf %s never interprets content
+            PROMPT_FILE="$WORKSPACE/.paude-prompt.txt"
+            printf '%s' "$PROMPT_CONTENT" > "$PROMPT_FILE"
+
+            # Write launcher that reads prompt from file into a variable and quotes it
+            # $AGENT_PROMPT in the heredoc is intentionally literal (backslash-escaped)
+            cat > "$LAUNCHER_FILE" << LAUNCHER_EOF
+#!/bin/bash
+cd '$WORKSPACE'
+AGENT_PROMPT=\$(cat '$PROMPT_FILE')
+exec $AGENT_LAUNCH_CMD --output-format stream-json --verbose $BASE_FLAGS -p "\$AGENT_PROMPT" 2>&1 | tee '$EVENTS_FILE'
+LAUNCHER_EOF
+        else
+            # No -p flag — just run with the base flags
+            cat > "$LAUNCHER_FILE" << LAUNCHER_EOF
+#!/bin/bash
+cd '$WORKSPACE'
+exec $AGENT_LAUNCH_CMD --output-format stream-json $AGENT_ARGS 2>&1 | tee '$WORKSPACE/.paude-events.jsonl'
+LAUNCHER_EOF
+        fi
+        echo "[paude] launcher: $LAUNCHER_FILE"
+    else
+        # --- Interactive or non-Claude: plain launch command ---
+        cat > "$LAUNCHER_FILE" << LAUNCHER_EOF
+#!/bin/bash
+cd '$WORKSPACE'
+exec $AGENT_LAUNCH_CMD $AGENT_ARGS
+LAUNCHER_EOF
+    fi
+    chmod +x "$LAUNCHER_FILE"
+
     tmux -u new-session -s "$AGENT_SESSION_NAME" -c "$WORKSPACE" -d "bash -l"
     tmux send-keys -t "$AGENT_SESSION_NAME" "export HOME=$HOME PATH='$PATH'" Enter
     tmux send-keys -t "$AGENT_SESSION_NAME" "cd $WORKSPACE" Enter
-    tmux send-keys -t "$AGENT_SESSION_NAME" "clear && $AGENT_LAUNCH_CMD $AGENT_ARGS" Enter
+    tmux send-keys -t "$AGENT_SESSION_NAME" "clear && bash '$LAUNCHER_FILE'" Enter
     exit_if_headless "started"
     attach_to_session new
 fi
