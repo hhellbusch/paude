@@ -6,6 +6,7 @@ import fnmatch
 import shlex
 import shutil
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -499,3 +500,107 @@ def _check_unmerged_work(
         err=True,
     )
     raise typer.Exit(1)
+
+
+def _send_notification(title: str, message: str, enabled: bool) -> None:
+    """Send a desktop notification if enabled and notify-send is available."""
+    if not enabled:
+        return
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", title, message], capture_output=True)
+
+
+def wait_session(
+    session_name: str,
+    interval: int = 30,
+    timeout_minutes: int = 60,
+    on_idle: str | None = None,
+    send_notify: bool = True,
+    openshift_context: str | None = None,
+    openshift_namespace: str | None = None,
+) -> None:
+    """Poll a session until it reaches Idle state, then optionally run a command.
+
+    Prints a live status line showing elapsed time and current state.
+    Sends a desktop notification (via notify-send) when Idle, if available.
+
+    Exit codes:
+        0 — session reached Idle state
+        1 — timed out before reaching Idle
+    """
+    from paude.session_status import get_session_enrichment
+
+    _backend_type, backend, session = _find_backend_and_session(
+        session_name, openshift_context, openshift_namespace
+    )
+    agent_name = session.agent or "claude"
+
+    timeout_sec = timeout_minutes * 60 if timeout_minutes > 0 else None
+    start = time.time()
+
+    typer.echo(
+        f"Watching '{session_name}' "
+        f"(interval: {interval}s"
+        + (f", timeout: {timeout_minutes}m" if timeout_sec else "")
+        + ") — Ctrl+C to stop",
+        err=True,
+    )
+
+    while True:
+        elapsed = int(time.time() - start)
+
+        if timeout_sec and elapsed >= timeout_sec:
+            typer.echo("")
+            msg = f"Timed out after {timeout_minutes}m waiting for '{session_name}' to become Idle"
+            typer.echo(msg, err=True)
+            _send_notification("Paude: Timeout", msg, send_notify)
+            raise typer.Exit(1)
+
+        try:
+            activity, summary = get_session_enrichment(
+                backend, session_name, agent_name=agent_name
+            )
+        except Exception as exc:  # noqa: BLE001
+            typer.echo(
+                f"\rWarning: could not read session state ({exc}), retrying...",
+                err=True,
+            )
+            time.sleep(interval)
+            continue
+
+        elapsed_str = (
+            f"{elapsed // 60}m{elapsed % 60:02d}s" if elapsed >= 60 else f"{elapsed}s"
+        )
+        commits_info = (
+            f" (+{summary.commits_ahead} commit(s))"
+            if summary and summary.commits_ahead > 0
+            else ""
+        )
+        typer.echo(
+            f"\r[{elapsed_str}] {activity.state}{commits_info}   ",
+            nl=False,
+            err=True,
+        )
+
+        if activity.state == "Idle":
+            typer.echo("", err=True)  # newline after the live \r line
+            if summary and summary.commits_ahead > 0:
+                msg = (
+                    f"Session '{session_name}' is Idle — "
+                    f"{summary.commits_ahead} commit(s) ready to harvest"
+                )
+            else:
+                msg = (
+                    f"Session '{session_name}' is Idle — "
+                    "no new commits (agent may have stalled; connect and check)"
+                )
+            typer.echo(msg)
+            _send_notification("Paude: Idle", msg, send_notify)
+
+            if on_idle:
+                typer.echo(f"Running: {on_idle}")
+                result = subprocess.run(on_idle, shell=True)  # noqa: S602
+                raise typer.Exit(result.returncode)
+            return
+
+        time.sleep(interval)

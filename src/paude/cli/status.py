@@ -90,6 +90,90 @@ def reset_cmd(
     )
 
 
+@app.command("wait")
+def wait_cmd(
+    session: Annotated[str, typer.Argument(help="Session name to wait for.")],
+    interval: Annotated[
+        int,
+        typer.Option(
+            "--interval",
+            "-i",
+            help="Poll interval in seconds.",
+        ),
+    ] = 30,
+    timeout: Annotated[
+        int,
+        typer.Option(
+            "--timeout",
+            "-t",
+            help="Timeout in minutes. 0 disables the timeout.",
+        ),
+    ] = 60,
+    on_idle: Annotated[
+        str | None,
+        typer.Option(
+            "--on-idle",
+            help=(
+                "Shell command to run when the session reaches Idle state "
+                "(e.g., 'paude harvest my-session -b review/branch')."
+            ),
+        ),
+    ] = None,
+    notify: Annotated[
+        bool,
+        typer.Option(
+            "--notify/--no-notify",
+            help="Send a desktop notification when Idle (requires notify-send).",
+        ),
+    ] = True,
+    openshift_context: Annotated[
+        str | None,
+        typer.Option(
+            "--openshift-context",
+            help="Kubeconfig context for OpenShift.",
+        ),
+    ] = None,
+    openshift_namespace: Annotated[
+        str | None,
+        typer.Option(
+            "--openshift-namespace",
+            help="OpenShift namespace (default: current context namespace).",
+        ),
+    ] = None,
+) -> None:
+    """Wait for a session to reach Idle state, then optionally run a command.
+
+    Polls the session at the given interval and prints a live status line.
+    When the session becomes Idle, sends a desktop notification (if
+    notify-send is available) and runs --on-idle if provided.
+
+    Exit code 0 = Idle reached. Exit code 1 = timed out.
+
+    Examples:
+
+    \\b
+        # Wait and notify only
+        paude wait my-session
+
+        # Fire-and-forget: auto-harvest when done
+        paude wait my-session --on-idle "paude harvest my-session -b review/branch"
+
+        # Background the wait so the terminal is free
+        paude wait my-session --on-idle "paude harvest my-session -b review/branch" &
+    """
+    from paude.workflow import wait_session
+
+    wait_session(
+        session_name=session,
+        interval=interval,
+        timeout_minutes=timeout,
+        on_idle=on_idle,
+        send_notify=notify,
+        openshift_context=openshift_context,
+        openshift_namespace=openshift_namespace,
+    )
+
+
 @app.command("harvest")
 def harvest_cmd(
     session: Annotated[str, typer.Argument(help="Session name to harvest from.")],

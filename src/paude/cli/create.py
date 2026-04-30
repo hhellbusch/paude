@@ -71,6 +71,18 @@ def session_create(
             help="Arguments to pass to claude (e.g., -a '-p \"prompt\"').",
         ),
     ] = None,
+    prompt_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--prompt-file",
+            help=(
+                "File containing the initial prompt to pass to the agent. "
+                "Reads the file and passes its content as -p, avoiding shell "
+                "quoting issues with --args for multi-line or complex prompts. "
+                "Mutually exclusive with --args."
+            ),
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -189,6 +201,14 @@ def session_create(
 
     workspace = Path.cwd()
 
+    # Validate --prompt-file / --args mutual exclusivity
+    if prompt_file is not None and claude_args is not None:
+        typer.echo("Error: --prompt-file and --args are mutually exclusive.", err=True)
+        raise typer.Exit(1)
+    if prompt_file is not None and not prompt_file.exists():
+        typer.echo(f"Error: Prompt file not found: {prompt_file}", err=True)
+        raise typer.Exit(1)
+
     # Load user defaults
     user_defaults = load_user_defaults()
 
@@ -259,6 +279,8 @@ def session_create(
         from paude.dry_run import show_dry_run
 
         parsed_args = _parse_agent_args(claude_args)
+        if prompt_file is not None:
+            parsed_args = ["-p", prompt_file.read_text()]
         agent_instance = get_agent(r_agent, provider=r_provider)
 
         expanded = _expand_allowed_domains(
@@ -322,6 +344,9 @@ def session_create(
         provider_name=r_provider,
         otel_endpoint=r_otel_endpoint,
     )
+    # --prompt-file bypasses shlex entirely: read file content and pass as -p
+    if prompt_file is not None:
+        parsed_args = ["-p", prompt_file.read_text()]
 
     # Compute OTEL proxy ports (non-standard ports to allow through proxy)
     otel_ports: list[int] = []
