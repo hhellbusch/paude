@@ -54,14 +54,21 @@ AGENT_PROVIDERS: dict[str, dict[str, AgentProviderConfig]] = {
     },
     "pi": {
         # Direct Anthropic API — requires ANTHROPIC_API_KEY.
-        # Note: pi does NOT support Anthropic via Vertex; vertex here means Gemini.
         "anthropic": AgentProviderConfig(),
         # Gemini via Vertex AI — uses GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
-        "vertex": AgentProviderConfig(),
+        # Also supports Anthropic/Claude via Vertex when ANTHROPIC_VERTEX_PROJECT_ID
+        # is set and ~/.pi/agent/models.json is seeded (handled by PiAgent).
+        "vertex": AgentProviderConfig(
+            extra_passthrough_env_vars=["ANTHROPIC_VERTEX_PROJECT_ID"],
+        ),
         # Gemini via Google AI API — requires GEMINI_API_KEY.
         "google": AgentProviderConfig(
             extra_secret_env_vars=["GEMINI_API_KEY"],
         ),
+        # GitHub Copilot — auth via ~/.pi/agent/auth.json seeded from host.
+        # Run `pi /login` once on the host to populate the auth file, then
+        # PiAgent will mount it automatically.
+        "github": AgentProviderConfig(),
     },
 }
 
