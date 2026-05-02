@@ -64,6 +64,11 @@ DOMAIN_ALIASES: dict[str, list[str]] = {
         "release-assets.githubusercontent.com",
         "results-receiver.actions.githubusercontent.com",
     ],
+    "copilot": [
+        "api.githubcopilot.com",
+        "copilot-proxy.githubusercontent.com",
+        "telemetry.githubcopilot.com",
+    ],
     "openai": [
         ".openai.com",
     ],

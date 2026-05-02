@@ -49,6 +49,9 @@ AGENT_PROVIDERS: dict[str, dict[str, AgentProviderConfig]] = {
     "gemini": {
         "google": AgentProviderConfig(),
     },
+    "copilot": {
+        "github": AgentProviderConfig(),
+    },
 }
 
 # Default provider for each agent (used when --provider is not specified).
@@ -57,6 +60,7 @@ DEFAULT_PROVIDER: dict[str, str] = {
     "openclaw": "vertex",
     "cursor": "cursor",
     "gemini": "google",
+    "copilot": "github",
 }
 
 
