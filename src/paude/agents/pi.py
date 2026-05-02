@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -11,6 +12,25 @@ from paude.agents.base import (
     build_provider_credentials,
 )
 from paude.mounts import resolve_path
+
+# Minimal gcloud stub for Pi's `!gcloud auth print-access-token` mechanism.
+# Uses the google-auth ADC chain so it works with GCE metadata, ADC files, or
+# GOOGLE_APPLICATION_CREDENTIALS — no full Cloud SDK required.
+_GCLOUD_STUB = """\
+#!/usr/bin/env python3
+import sys
+if sys.argv[1:] == ["auth", "print-access-token"]:
+    import google.auth
+    import google.auth.transport.requests
+    creds, _ = google.auth.default()
+    creds.refresh(google.auth.transport.requests.Request())
+    print(creds.token)
+else:
+    # Pass through to a real gcloud if it exists; otherwise fail gracefully.
+    import subprocess
+    sys.exit(subprocess.call(["gcloud-real"] + sys.argv[1:]))
+"""
+_GCLOUD_STUB_B64 = base64.b64encode(_GCLOUD_STUB.encode()).decode()
 
 
 class PiAgent:
@@ -74,10 +94,18 @@ class PiAgent:
             "# Install Node.js 22 for Pi coding agent",
             "USER root",
             "RUN dnf module enable nodejs:22 -y 2>/dev/null || true && \\",
-            "    dnf install -y nodejs npm && dnf clean all",
+            "    dnf install -y nodejs npm python3 python3-pip && dnf clean all",
             "",
             "# Install Pi coding agent",
             "RUN npm install -g @mariozechner/pi-coding-agent",
+            "",
+            "# Install google-auth for the gcloud stub used by Pi's Vertex Anthropic provider",
+            "RUN pip3 install --quiet google-auth requests",
+            "",
+            "# Drop a minimal gcloud stub that handles `auth print-access-token` via ADC.",
+            "# Pi's models.json uses `!gcloud auth print-access-token` for Vertex Anthropic.",
+            f"RUN printf '%s' '{_GCLOUD_STUB_B64}' | base64 -d > /usr/local/bin/gcloud"
+            " && chmod +x /usr/local/bin/gcloud",
             "",
             "# Ensure Node.js respects http_proxy/https_proxy env vars",
             "ENV NODE_USE_ENV_PROXY=1",
