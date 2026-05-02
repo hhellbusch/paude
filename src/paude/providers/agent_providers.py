@@ -52,6 +52,17 @@ AGENT_PROVIDERS: dict[str, dict[str, AgentProviderConfig]] = {
     "copilot": {
         "github": AgentProviderConfig(),
     },
+    "pi": {
+        # Direct Anthropic API — requires ANTHROPIC_API_KEY.
+        # Note: pi does NOT support Anthropic via Vertex; vertex here means Gemini.
+        "anthropic": AgentProviderConfig(),
+        # Gemini via Vertex AI — uses GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
+        "vertex": AgentProviderConfig(),
+        # Gemini via Google AI API — requires GEMINI_API_KEY.
+        "google": AgentProviderConfig(
+            extra_secret_env_vars=["GEMINI_API_KEY"],
+        ),
+    },
 }
 
 # Default provider for each agent (used when --provider is not specified).
@@ -61,6 +72,7 @@ DEFAULT_PROVIDER: dict[str, str] = {
     "cursor": "cursor",
     "gemini": "google",
     "copilot": "github",
+    "pi": "anthropic",
 }
 
 

@@ -8,6 +8,7 @@ from paude.agents.copilot import CopilotAgent
 from paude.agents.cursor import CursorAgent
 from paude.agents.gemini import GeminiAgent
 from paude.agents.openclaw import OpenClawAgent
+from paude.agents.pi import PiAgent
 
 __all__ = [
     "Agent",
@@ -17,6 +18,7 @@ __all__ = [
     "CursorAgent",
     "GeminiAgent",
     "OpenClawAgent",
+    "PiAgent",
     "get_agent",
     "list_agents",
 ]
@@ -27,6 +29,7 @@ _REGISTRY: dict[str, type] = {
     "cursor": CursorAgent,
     "gemini": GeminiAgent,
     "openclaw": OpenClawAgent,
+    "pi": PiAgent,
 }
 
 
