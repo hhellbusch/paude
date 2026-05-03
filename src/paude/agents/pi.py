@@ -22,12 +22,12 @@ class PiAgent:
 
     Supported providers (selectable via --provider on paude create):
       anthropic — ANTHROPIC_API_KEY (direct Anthropic API)
-      vertex    — Gemini models via Vertex AI, using Pi's built-in google-vertex
-                  provider.  Requires GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
-                  Note: Anthropic/Claude models on Vertex are NOT supported by Pi —
-                  Pi uses @anthropic-ai/sdk which appends /v1/messages to baseURL,
-                  incompatible with Vertex's per-model :rawPredict endpoint.
-                  Use Claude Code (paude --agent claude) for Claude on Vertex.
+      vertex    — Gemini and Anthropic/Claude models via Vertex AI.
+                  Requires GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
+                  Gemini: Pi's built-in google-vertex provider.
+                  Claude: basnijholt/pi-anthropic-vertex extension, installed into
+                  the image at build time, uses @anthropic-ai/vertex-sdk + ADC —
+                  same auth flow as Claude Code and OpenClaw on Vertex.
       google    — Gemini via Google AI API (GEMINI_API_KEY)
       github    — GitHub Copilot via ~/.pi/agent/auth.json seeded from host.
                   Run `pi /login` once on the host to populate that file.
@@ -74,12 +74,12 @@ class PiAgent:
         return self._config
 
     def dockerfile_install_lines(self, container_home: str) -> list[str]:
-        return [
+        lines = [
             "",
-            "# Install Node.js 22 for Pi coding agent",
+            "# Install Node.js 22 and tools for Pi coding agent",
             "USER root",
             "RUN dnf module enable nodejs:22 -y 2>/dev/null || true && \\",
-            "    dnf install -y nodejs npm ripgrep fd-find && dnf clean all",
+            "    dnf install -y nodejs npm git ripgrep fd-find && dnf clean all",
             "",
             "# Install Pi coding agent",
             "RUN npm install -g @mariozechner/pi-coding-agent",
@@ -94,6 +94,19 @@ class PiAgent:
             "USER paude",
             f"WORKDIR {container_home}",
         ]
+        if self._config.provider == "vertex":
+            lines += [
+                "",
+                "# Install pi-anthropic-vertex extension for Claude models via Vertex AI.",
+                "# Uses @anthropic-ai/vertex-sdk + ADC — same auth flow as Claude Code on Vertex.",
+                "# Source: https://github.com/basnijholt/pi-anthropic-vertex",
+                f"RUN mkdir -p {container_home}/.pi/agent/extensions && \\",
+                f"    git clone --depth 1 https://github.com/basnijholt/pi-anthropic-vertex.git \\",
+                f"        {container_home}/.pi/agent/extensions/pi-anthropic-vertex && \\",
+                f"    cd {container_home}/.pi/agent/extensions/pi-anthropic-vertex && \\",
+                "    npm install --quiet --no-fund --no-audit",
+            ]
+        return lines
 
     def apply_sandbox_config(
         self, home: str, workspace: str, args: str, *, yolo: bool = False
@@ -140,12 +153,12 @@ fi
         Defaults below are chosen to match the most capable model each provider
         exposes to pi out of the box.  The user can override at session creation:
           paude create --agent pi --provider vertex \\
-            --agent-args "--model google-vertex/gemini-2.0-flash" my-session
+            --agent-args "--model anthropic-vertex/claude-sonnet-4-5@20250929" my-session
         """
         defaults: dict[str, str] = {
-            # Vertex AI — Pi's built-in google-vertex provider (Gemini only).
-            # Anthropic models on Vertex are not supported by Pi's current SDK.
-            "vertex": "--model google-vertex/gemini-2.5-pro",
+            # Vertex AI — Claude via basnijholt/pi-anthropic-vertex extension.
+            # Falls back to gemini if the extension isn't loaded or project not set.
+            "vertex": "--model anthropic-vertex/claude-sonnet-4-6",
             # Direct Anthropic API
             "anthropic": "--model anthropic/claude-sonnet-4-6",
             # Google AI direct API (GEMINI_API_KEY)

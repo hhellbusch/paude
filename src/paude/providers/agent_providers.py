@@ -55,11 +55,11 @@ AGENT_PROVIDERS: dict[str, dict[str, AgentProviderConfig]] = {
     "pi": {
         # Direct Anthropic API — requires ANTHROPIC_API_KEY.
         "anthropic": AgentProviderConfig(),
-        # Vertex AI — Pi's built-in google-vertex provider handles Gemini models via
-        # GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).  Anthropic/Claude on Vertex
-        # is NOT supported: Pi uses @anthropic-ai/sdk which appends /v1/messages to
-        # baseUrl, incompatible with Vertex's per-model :rawPredict endpoint format.
-        # For Claude on Vertex, use Claude Code (--agent claude --provider vertex).
+        # Vertex AI — Gemini via Pi's built-in google-vertex provider, and
+        # Claude via the basnijholt/pi-anthropic-vertex extension (installed
+        # at image build time).  Both use GOOGLE_CLOUD_PROJECT + ADC
+        # (CLOUDSDK_AUTH_*); the extension uses @anthropic-ai/vertex-sdk
+        # with the same ADC auth flow as Claude Code and OpenClaw on Vertex.
         "vertex": AgentProviderConfig(),
         # Gemini via Google AI API — requires GEMINI_API_KEY.
         "google": AgentProviderConfig(
