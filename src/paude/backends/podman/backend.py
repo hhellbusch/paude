@@ -35,6 +35,7 @@ from paude.backends.shared import (
     PAUDE_LABEL_OTEL_ENDPOINT,
     PAUDE_LABEL_OTEL_PORTS,
     PAUDE_LABEL_PROVIDER,
+    PAUDE_LABEL_PROXY_ADD_HOSTS,
     PAUDE_LABEL_PROXY_IMAGE,
     PAUDE_LABEL_SESSION,
     PAUDE_LABEL_UPSTREAM_CA,
@@ -282,6 +283,8 @@ class PodmanBackend:
             labels[PAUDE_LABEL_OTEL_ENDPOINT] = config.otel_endpoint
         if config.upstream_ca_path:
             labels[PAUDE_LABEL_UPSTREAM_CA] = config.upstream_ca_path
+        if config.proxy_add_hosts:
+            labels[PAUDE_LABEL_PROXY_ADD_HOSTS] = ",".join(config.proxy_add_hosts)
 
         print(f"Creating session '{session_name}'...", file=sys.stderr)
 
@@ -309,6 +312,7 @@ class PodmanBackend:
                     otel_ports=config.otel_ports,
                     credentials=proxy_creds,
                     upstream_ca_path=config.upstream_ca_path,
+                    add_hosts=config.proxy_add_hosts or None,
                 )
             except Exception:
                 if not config.reuse_volume:

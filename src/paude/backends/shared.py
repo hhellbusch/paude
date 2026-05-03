@@ -28,6 +28,7 @@ PAUDE_LABEL_PROVIDER = "paude.io/provider"
 PAUDE_LABEL_OTEL_PORTS = "paude.io/otel-ports"
 PAUDE_LABEL_OTEL_ENDPOINT = "paude.io/otel-endpoint"
 PAUDE_LABEL_UPSTREAM_CA = "paude.io/upstream-ca-path"
+PAUDE_LABEL_PROXY_ADD_HOSTS = "paude.io/proxy-add-hosts"
 
 PROXY_BLOCKED_LOG_PATH = "/tmp/paude-proxy-blocked.log"  # noqa: S108
 

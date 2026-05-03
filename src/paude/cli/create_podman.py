@@ -14,6 +14,7 @@ from paude.cli.helpers import (
     _detect_dev_script_dir,
     _finalize_session_create,
     _run_post_create_command,
+    openai_api_hostname_from_environ,
 )
 from paude.config.models import PaudeConfig
 
@@ -97,6 +98,18 @@ def create_podman_session(
         typer.echo(f"Error ensuring proxy image: {e}", err=True)
         raise typer.Exit(1) from None
 
+    # When OPENAI_BASE_URL uses a hostname (not a bare IP), add
+    # --add-host so the proxy container can route to the host machine
+    # via Podman's host-gateway. This handles the case where the LLM
+    # runs on the same host as paude (dev) while preserving portability
+    # for when it runs on a different machine (production DNS resolves).
+    import re
+
+    proxy_add_hosts: list[str] = []
+    openai_host = openai_api_hostname_from_environ()
+    if openai_host and not re.match(r"^\d+\.\d+\.\d+\.\d+$", openai_host):
+        proxy_add_hosts.append(f"{openai_host}:host-gateway")
+
     # Create session config
     session_config = SessionConfig(
         name=name,
@@ -117,6 +130,7 @@ def create_podman_session(
         otel_endpoint=otel_endpoint,
         pi_extensions=pi_extensions or [],
         upstream_ca_path=upstream_ca_path,
+        proxy_add_hosts=proxy_add_hosts,
     )
 
     try:

@@ -90,6 +90,7 @@ class SessionConfig:
     otel_endpoint: str | None = None
     pi_extensions: list[str] = field(default_factory=list)
     upstream_ca_path: str | None = None
+    proxy_add_hosts: list[str] = field(default_factory=list)
 
 
 class Backend(Protocol):
