@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -13,29 +12,8 @@ from paude.agents.base import (
 )
 from paude.mounts import resolve_path
 
-# Models to inject into pi-anthropic-vertex extension at image build time.
-# The pinned extension commit (2f7eebe, Feb 2026) predates these models.
-# Keep this list in sync with https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/use-partner-models
-_EXTRA_VERTEX_MODELS = [
-    {
-        "id": "claude-sonnet-4-6",
-        "name": "Claude Sonnet 4.6 (Vertex AI)",
-        "reasoning": True,
-        "input": ["text", "image"],
-        "cost": {"input": 3, "output": 15, "cacheRead": 0.3, "cacheWrite": 3.75},
-        "contextWindow": 1000000,
-        "maxTokens": 64000,
-    },
-    {
-        "id": "claude-opus-4-7",
-        "name": "Claude Opus 4.7 (Vertex AI)",
-        "reasoning": True,
-        "input": ["text", "image"],
-        "cost": {"input": 15, "output": 75, "cacheRead": 0.5, "cacheWrite": 6.25},
-        "contextWindow": 1000000,
-        "maxTokens": 128000,
-    },
-]
+_VERTEX_EXTENSION_REPO = "https://github.com/hhellbusch/pi-anthropic-vertex.git"
+_VERTEX_EXTENSION_SHA = "4f2969362553ca5da00870448669f7ee1c45f143"
 
 
 class PiAgent:
@@ -131,43 +109,16 @@ class PiAgent:
                 "",
                 "# Install pi-anthropic-vertex extension for Claude models via Vertex AI.",
                 "# Uses @anthropic-ai/vertex-sdk + ADC — same auth flow as Claude Code on Vertex.",
-                "# Pinned to verified commit 2f7eebe (v0.2.1, 2026-02-25).",
-                "# Source: https://github.com/basnijholt/pi-anthropic-vertex",
+                f"# Pinned to {_VERTEX_EXTENSION_SHA[:7]}.",
+                f"# Source: {_VERTEX_EXTENSION_REPO}",
                 f"RUN mkdir -p {container_home}/.pi/agent/extensions && \\",
-                "    git clone https://github.com/basnijholt/pi-anthropic-vertex.git \\",
+                f"    git clone {_VERTEX_EXTENSION_REPO} \\",
                 f"        {ext_dir} && \\",
                 f"    cd {ext_dir} && \\",
-                "    git checkout 2f7eebe2928d779b914b810a682d371433708c67 && \\",
+                f"    git checkout {_VERTEX_EXTENSION_SHA} && \\",
                 "    npm install --quiet --no-fund --no-audit",
             ]
-            lines += self._patch_vertex_models_lines(ext_dir)
         return lines
-
-    @staticmethod
-    def _patch_vertex_models_lines(ext_dir: str) -> list[str]:
-        """Dockerfile lines to inject newer Claude models into the pinned extension."""
-        if not _EXTRA_VERTEX_MODELS:
-            return []
-        models_json = json.dumps(_EXTRA_VERTEX_MODELS)
-        # node script: read index.ts, insert models after the MODELS array opening,
-        # write it back.  Runs at image build time so zero runtime cost.
-        script = (
-            "const fs=require('fs');"
-            "const extra=JSON.parse(process.argv[1]);"
-            "let c=fs.readFileSync('index.ts','utf8');"
-            "const ts=extra.map(m=>JSON.stringify(m)+',').join('\\n\\t');"
-            "c=c.replace("
-            "'const MODELS: ProviderModelConfig[] = [',"
-            "'const MODELS: ProviderModelConfig[] = [\\n\\t'+ts"
-            ");"
-            "fs.writeFileSync('index.ts',c);"
-        )
-        return [
-            "",
-            "# Patch: add newer Claude models not yet in the pinned extension",
-            f"RUN cd {ext_dir} && \\",
-            f"    node -e \"{script}\" '{models_json}'",
-        ]
 
     def apply_sandbox_config(
         self,
