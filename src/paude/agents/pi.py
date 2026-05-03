@@ -14,8 +14,9 @@ from paude.agents.base import (
 from paude.mounts import resolve_path
 
 # Minimal gcloud stub for Pi's `!gcloud auth print-access-token` mechanism.
-# Uses the google-auth ADC chain so it works with GCE metadata, ADC files, or
-# GOOGLE_APPLICATION_CREDENTIALS — no full Cloud SDK required.
+# Uses google.auth.default() which reads the paude stub ADC file and triggers
+# an OAuth token refresh request.  The paude proxy intercepts that request and
+# returns a real access token — the same mechanism Claude Code uses for Vertex.
 _GCLOUD_STUB = """\
 #!/usr/bin/env python3
 import sys
@@ -26,9 +27,8 @@ if sys.argv[1:] == ["auth", "print-access-token"]:
     creds.refresh(google.auth.transport.requests.Request())
     print(creds.token)
 else:
-    # Pass through to a real gcloud if it exists; otherwise fail gracefully.
-    import subprocess
-    sys.exit(subprocess.call(["gcloud-real"] + sys.argv[1:]))
+    sys.stderr.write(f"gcloud: unsupported subcommand: {' '.join(sys.argv[1:])}\\n")
+    sys.exit(1)
 """
 _GCLOUD_STUB_B64 = base64.b64encode(_GCLOUD_STUB.encode()).decode()
 
@@ -198,90 +198,97 @@ fi
     def _models_json_seed_script(self, home: str) -> str:
         """Return a bash fragment that seeds ~/.pi/agent/models.json for Vertex Anthropic.
 
-        Only emits anything when ANTHROPIC_VERTEX_PROJECT_ID is in the environment at
-        container startup time (it arrives as a passthrough env var from the host).
+        Only runs when ANTHROPIC_VERTEX_PROJECT_ID is set in the container
+        (it arrives via the base vertex provider's passthrough_env_vars).
+
+        Mirrors Claude Code's CLOUD_ML_REGION region logic:
+          global   → aiplatform.googleapis.com          / locations/global
+          <region> → <region>-aiplatform.googleapis.com / locations/<region>
+          (unset)  → us-east5 (the documented Anthropic Vertex region)
         """
-        provider = self._config.provider
-        if provider != "vertex":
+        if self._config.provider != "vertex":
             return ""
 
-        # Build the static models.json for Vertex Anthropic.  The project ID and
-        # location are substituted at runtime via env vars — we use a shell heredoc
-        # so the container picks up whatever values were passed through.
-        # Model IDs sourced from https://docs.anthropic.com/claude/reference/claude-on-vertex-ai
-        # - Newest models (Opus 4.7, Opus 4.6, Sonnet 4.6) use no date suffix
-        # - Older versioned models use @YYYYMMDD snapshot suffix
-        models_config = {
-            "providers": {
-                "anthropic-vertex": {
-                    "baseUrl": (
-                        "https://${ANTHROPIC_VERTEX_REGION}-aiplatform.googleapis.com"
-                        "/v1/projects/${ANTHROPIC_VERTEX_PROJECT_ID}"
-                        "/locations/${ANTHROPIC_VERTEX_REGION}"
-                        "/publishers/anthropic/models"
-                    ),
-                    "api": "anthropic-messages",
-                    "authHeader": True,
-                    "apiKey": "!gcloud auth print-access-token",
-                    "models": [
-                        {
-                            "id": "claude-opus-4-7",
-                            "name": "Vertex Claude Opus 4.7",
-                            "reasoning": True,
-                            "input": ["text", "image"],
-                            "contextWindow": 1000000,
-                            "maxTokens": 32000,
-                        },
-                        {
-                            "id": "claude-sonnet-4-6",
-                            "name": "Vertex Claude Sonnet 4.6",
-                            "reasoning": True,
-                            "input": ["text", "image"],
-                            "contextWindow": 1000000,
-                            "maxTokens": 16000,
-                        },
-                        {
-                            "id": "claude-opus-4-6",
-                            "name": "Vertex Claude Opus 4.6",
-                            "reasoning": True,
-                            "input": ["text", "image"],
-                            "contextWindow": 1000000,
-                            "maxTokens": 32000,
-                        },
-                        {
-                            "id": "claude-sonnet-4-5@20250929",
-                            "name": "Vertex Claude Sonnet 4.5",
-                            "reasoning": True,
-                            "input": ["text", "image"],
-                            "contextWindow": 200000,
-                            "maxTokens": 16000,
-                        },
-                        {
-                            "id": "claude-haiku-4-5@20251001",
-                            "name": "Vertex Claude Haiku 4.5",
-                            "reasoning": False,
-                            "input": ["text", "image"],
-                            "contextWindow": 200000,
-                            "maxTokens": 4096,
-                        },
-                    ],
-                }
-            }
-        }
-        models_json_str = json.dumps(models_config, indent=2)
+        # Render the models list as static JSON — the baseUrl is computed at
+        # container startup from CLOUD_ML_REGION so the written file is always
+        # a plain URL with no unexpanded shell variables.
+        models = [
+            {
+                "id": "claude-opus-4-7",
+                "name": "Vertex Claude Opus 4.7",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "contextWindow": 1000000,
+                "maxTokens": 32000,
+            },
+            {
+                "id": "claude-sonnet-4-6",
+                "name": "Vertex Claude Sonnet 4.6",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "contextWindow": 1000000,
+                "maxTokens": 16000,
+            },
+            {
+                "id": "claude-opus-4-6",
+                "name": "Vertex Claude Opus 4.6",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "contextWindow": 1000000,
+                "maxTokens": 32000,
+            },
+            {
+                "id": "claude-sonnet-4-5@20250929",
+                "name": "Vertex Claude Sonnet 4.5",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "contextWindow": 200000,
+                "maxTokens": 16000,
+            },
+            {
+                "id": "claude-haiku-4-5@20251001",
+                "name": "Vertex Claude Haiku 4.5",
+                "reasoning": False,
+                "input": ["text", "image"],
+                "contextWindow": 200000,
+                "maxTokens": 4096,
+            },
+        ]
+        models_json = json.dumps(models, indent=2)
 
+        # The heredoc is intentionally UNQUOTED (MODELS_EOF without quotes) so
+        # that $_base_url is expanded by bash.  The models list above contains
+        # no $ characters so no other variables will be accidentally expanded.
         return f"""\
 
-# Seed models.json for Vertex Anthropic support (only when project ID is set)
+# Seed models.json for Vertex Anthropic — mirrors Claude Code's CLOUD_ML_REGION logic
 models_json="$agent_dir/models.json"
-# us-east5 is the documented Anthropic Vertex region.
-# Override by setting ANTHROPIC_VERTEX_REGION on the host before paude create.
-# NOTE: CLOUD_ML_REGION=global (used by Claude Code) is intentionally NOT used here
-# because "global-aiplatform.googleapis.com" is not a valid Anthropic endpoint.
-export ANTHROPIC_VERTEX_REGION="${{ANTHROPIC_VERTEX_REGION:-us-east5}}"
 if [ -n "${{ANTHROPIC_VERTEX_PROJECT_ID:-}}" ] && [ ! -f "$models_json" ]; then
-    cat > "$models_json" << 'MODELS_EOF'
-{models_json_str}
+    # Map CLOUD_ML_REGION to the Anthropic Vertex hostname the same way Claude Code does:
+    #   global      → aiplatform.googleapis.com         /locations/global
+    #   <region>    → <region>-aiplatform.googleapis.com/locations/<region>
+    #   (unset)     → us-east5 (documented Anthropic Vertex region)
+    _pi_region="${{CLOUD_ML_REGION:-us-east5}}"
+    if [ "$_pi_region" = "global" ]; then
+        _pi_host="aiplatform.googleapis.com"
+        _pi_loc="global"
+    else
+        _pi_host="${{_pi_region}}-aiplatform.googleapis.com"
+        _pi_loc="$_pi_region"
+    fi
+    _base_url="https://$_pi_host/v1/projects/${{ANTHROPIC_VERTEX_PROJECT_ID}}/locations/$_pi_loc/publishers/anthropic/models"
+    cat > "$models_json" << MODELS_EOF
+{{
+  "providers": {{
+    "anthropic-vertex": {{
+      "baseUrl": "$_base_url",
+      "api": "anthropic-messages",
+      "authHeader": true,
+      "apiKey": "!gcloud auth print-access-token",
+      "models": {models_json}
+    }}
+  }}
+}}
 MODELS_EOF
 fi
 """

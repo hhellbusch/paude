@@ -55,15 +55,13 @@ AGENT_PROVIDERS: dict[str, dict[str, AgentProviderConfig]] = {
     "pi": {
         # Direct Anthropic API — requires ANTHROPIC_API_KEY.
         "anthropic": AgentProviderConfig(),
-        # Gemini via Vertex AI — uses GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
-        # Also supports Anthropic/Claude via Vertex when ANTHROPIC_VERTEX_PROJECT_ID
-        # is set and ~/.pi/agent/models.json is seeded (handled by PiAgent).
-        # ANTHROPIC_VERTEX_REGION defaults to us-east5 (documented Anthropic region).
-        # Note: CLOUD_ML_REGION=global (used by Claude Code) maps differently and
-        # should NOT be passed through for the Anthropic endpoint URL.
-        "vertex": AgentProviderConfig(
-            extra_passthrough_env_vars=["ANTHROPIC_VERTEX_PROJECT_ID", "ANTHROPIC_VERTEX_REGION"],
-        ),
+        # Vertex AI — Gemini models use GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
+        # Claude models on Vertex are enabled when ANTHROPIC_VERTEX_PROJECT_ID is set;
+        # PiAgent seeds ~/.pi/agent/models.json using the same CLOUD_ML_REGION logic
+        # as Claude Code (global → aiplatform.googleapis.com, else {region}-prefix).
+        # All required vars (ANTHROPIC_VERTEX_PROJECT_ID, CLOUD_ML_REGION) are already
+        # in the base vertex provider's passthrough_env_vars — no extras needed here.
+        "vertex": AgentProviderConfig(),
         # Gemini via Google AI API — requires GEMINI_API_KEY.
         "google": AgentProviderConfig(
             extra_secret_env_vars=["GEMINI_API_KEY"],
