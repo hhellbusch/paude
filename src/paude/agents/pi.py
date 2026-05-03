@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import json
 from pathlib import Path
 
 from paude.agents.base import (
@@ -12,25 +10,6 @@ from paude.agents.base import (
     build_provider_credentials,
 )
 from paude.mounts import resolve_path
-
-# Minimal gcloud stub for Pi's `!gcloud auth print-access-token` mechanism.
-# Uses google.auth.default() which reads the paude stub ADC file and triggers
-# an OAuth token refresh request.  The paude proxy intercepts that request and
-# returns a real access token — the same mechanism Claude Code uses for Vertex.
-_GCLOUD_STUB = """\
-#!/usr/bin/env python3
-import sys
-if sys.argv[1:] == ["auth", "print-access-token"]:
-    import google.auth
-    import google.auth.transport.requests
-    creds, _ = google.auth.default()
-    creds.refresh(google.auth.transport.requests.Request())
-    print(creds.token)
-else:
-    sys.stderr.write(f"gcloud: unsupported subcommand: {' '.join(sys.argv[1:])}\\n")
-    sys.exit(1)
-"""
-_GCLOUD_STUB_B64 = base64.b64encode(_GCLOUD_STUB.encode()).decode()
 
 
 class PiAgent:
@@ -43,9 +22,12 @@ class PiAgent:
 
     Supported providers (selectable via --provider on paude create):
       anthropic — ANTHROPIC_API_KEY (direct Anthropic API)
-      vertex    — Gemini or Anthropic models via Vertex AI (GOOGLE_CLOUD_PROJECT + ADC).
-                  If ANTHROPIC_VERTEX_PROJECT_ID is also set, Claude models are seeded
-                  into ~/.pi/agent/models.json inside the container.
+      vertex    — Gemini models via Vertex AI, using Pi's built-in google-vertex
+                  provider.  Requires GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
+                  Note: Anthropic/Claude models on Vertex are NOT supported by Pi —
+                  Pi uses @anthropic-ai/sdk which appends /v1/messages to baseURL,
+                  incompatible with Vertex's per-model :rawPredict endpoint.
+                  Use Claude Code (paude --agent claude) for Claude on Vertex.
       google    — Gemini via Google AI API (GEMINI_API_KEY)
       github    — GitHub Copilot via ~/.pi/agent/auth.json seeded from host.
                   Run `pi /login` once on the host to populate that file.
@@ -97,18 +79,10 @@ class PiAgent:
             "# Install Node.js 22 for Pi coding agent",
             "USER root",
             "RUN dnf module enable nodejs:22 -y 2>/dev/null || true && \\",
-            "    dnf install -y nodejs npm python3 python3-pip ripgrep fd-find && dnf clean all",
+            "    dnf install -y nodejs npm ripgrep fd-find && dnf clean all",
             "",
             "# Install Pi coding agent",
             "RUN npm install -g @mariozechner/pi-coding-agent",
-            "",
-            "# Install google-auth for the gcloud stub used by Pi's Vertex Anthropic provider",
-            "RUN pip3 install --quiet google-auth requests",
-            "",
-            "# Drop a minimal gcloud stub that handles `auth print-access-token` via ADC.",
-            "# Pi's models.json uses `!gcloud auth print-access-token` for Vertex Anthropic.",
-            f"RUN printf '%s' '{_GCLOUD_STUB_B64}' | base64 -d > /usr/local/bin/gcloud"
-            " && chmod +x /usr/local/bin/gcloud",
             "",
             "# Ensure Node.js respects http_proxy/https_proxy env vars",
             "ENV NODE_USE_ENV_PROXY=1",
@@ -124,9 +98,6 @@ class PiAgent:
     def apply_sandbox_config(
         self, home: str, workspace: str, args: str, *, yolo: bool = False
     ) -> str:
-        # Build the optional models.json content for Vertex Anthropic support.
-        models_json_block = self._models_json_seed_script(home)
-
         return f"""\
 #!/bin/bash
 # Pre-configure Pi for containerized operation
@@ -152,7 +123,7 @@ if [ -f /credentials/pi-auth.json ]; then
     cp /credentials/pi-auth.json "$agent_dir/auth.json"
     chmod 600 "$agent_dir/auth.json" 2>/dev/null || true
 fi
-{models_json_block}"""
+"""
 
     def launch_command(self, args: str) -> str:
         default_flags = self._default_model_flags()
@@ -169,11 +140,12 @@ fi
         Defaults below are chosen to match the most capable model each provider
         exposes to pi out of the box.  The user can override at session creation:
           paude create --agent pi --provider vertex \\
-            --agent-args "--model google-vertex/gemini-2.5-pro" my-session
+            --agent-args "--model google-vertex/gemini-2.0-flash" my-session
         """
         defaults: dict[str, str] = {
-            # anthropic-vertex custom provider (seeded via models.json) — Claude Sonnet 4.6
-            "vertex": "--model anthropic-vertex/claude-sonnet-4-6",
+            # Vertex AI — Pi's built-in google-vertex provider (Gemini only).
+            # Anthropic models on Vertex are not supported by Pi's current SDK.
+            "vertex": "--model google-vertex/gemini-2.5-pro",
             # Direct Anthropic API
             "anthropic": "--model anthropic/claude-sonnet-4-6",
             # Google AI direct API (GEMINI_API_KEY)
@@ -194,104 +166,6 @@ fi
             mounts.extend(["-v", f"{resolved_auth}:/tmp/pi-auth.seed:ro"])
 
         return mounts
-
-    def _models_json_seed_script(self, home: str) -> str:
-        """Return a bash fragment that seeds ~/.pi/agent/models.json for Vertex Anthropic.
-
-        Only runs when ANTHROPIC_VERTEX_PROJECT_ID is set in the container
-        (it arrives via the base vertex provider's passthrough_env_vars).
-
-        Mirrors Claude Code's CLOUD_ML_REGION region logic:
-          global   → aiplatform.googleapis.com          / locations/global
-          <region> → <region>-aiplatform.googleapis.com / locations/<region>
-          (unset)  → us-east5 (the documented Anthropic Vertex region)
-        """
-        if self._config.provider != "vertex":
-            return ""
-
-        # Render the models list as static JSON — the baseUrl is computed at
-        # container startup from CLOUD_ML_REGION so the written file is always
-        # a plain URL with no unexpanded shell variables.
-        models = [
-            {
-                "id": "claude-opus-4-7",
-                "name": "Vertex Claude Opus 4.7",
-                "reasoning": True,
-                "input": ["text", "image"],
-                "contextWindow": 1000000,
-                "maxTokens": 32000,
-            },
-            {
-                "id": "claude-sonnet-4-6",
-                "name": "Vertex Claude Sonnet 4.6",
-                "reasoning": True,
-                "input": ["text", "image"],
-                "contextWindow": 1000000,
-                "maxTokens": 16000,
-            },
-            {
-                "id": "claude-opus-4-6",
-                "name": "Vertex Claude Opus 4.6",
-                "reasoning": True,
-                "input": ["text", "image"],
-                "contextWindow": 1000000,
-                "maxTokens": 32000,
-            },
-            {
-                "id": "claude-sonnet-4-5@20250929",
-                "name": "Vertex Claude Sonnet 4.5",
-                "reasoning": True,
-                "input": ["text", "image"],
-                "contextWindow": 200000,
-                "maxTokens": 16000,
-            },
-            {
-                "id": "claude-haiku-4-5@20251001",
-                "name": "Vertex Claude Haiku 4.5",
-                "reasoning": False,
-                "input": ["text", "image"],
-                "contextWindow": 200000,
-                "maxTokens": 4096,
-            },
-        ]
-        models_json = json.dumps(models, indent=2)
-
-        # The heredoc is intentionally UNQUOTED (MODELS_EOF without quotes) so
-        # that $_base_url is expanded by bash.  The models list above contains
-        # no $ characters so no other variables will be accidentally expanded.
-        return f"""\
-
-# Seed models.json for Vertex Anthropic — mirrors Claude Code's CLOUD_ML_REGION logic
-models_json="$agent_dir/models.json"
-if [ -n "${{ANTHROPIC_VERTEX_PROJECT_ID:-}}" ] && [ ! -f "$models_json" ]; then
-    # Map CLOUD_ML_REGION to the Anthropic Vertex hostname the same way Claude Code does:
-    #   global      → aiplatform.googleapis.com         /locations/global
-    #   <region>    → <region>-aiplatform.googleapis.com/locations/<region>
-    #   (unset)     → us-east5 (documented Anthropic Vertex region)
-    _pi_region="${{CLOUD_ML_REGION:-us-east5}}"
-    if [ "$_pi_region" = "global" ]; then
-        _pi_host="aiplatform.googleapis.com"
-        _pi_loc="global"
-    else
-        _pi_host="${{_pi_region}}-aiplatform.googleapis.com"
-        _pi_loc="$_pi_region"
-    fi
-    _base_url="https://$_pi_host/v1/projects/${{ANTHROPIC_VERTEX_PROJECT_ID}}/locations/$_pi_loc/publishers/anthropic/models"
-    cat > "$models_json" << MODELS_EOF
-{{
-  "providers": {{
-    "anthropic-vertex": {{
-      "baseUrl": "$_base_url",
-      "api": "anthropic-messages",
-      "authHeader": true,
-      "apiKey": "!gcloud auth print-access-token",
-      "models": {models_json}
-    }}
-  }}
-}}
-MODELS_EOF
-fi
-"""
 
     def build_environment(self) -> dict[str, str]:
         return build_environment_from_config(self._config)
