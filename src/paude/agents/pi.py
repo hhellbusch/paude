@@ -99,11 +99,13 @@ class PiAgent:
                 "",
                 "# Install pi-anthropic-vertex extension for Claude models via Vertex AI.",
                 "# Uses @anthropic-ai/vertex-sdk + ADC — same auth flow as Claude Code on Vertex.",
+                "# Pinned to verified commit 2f7eebe (v0.2.1, 2026-02-25).",
                 "# Source: https://github.com/basnijholt/pi-anthropic-vertex",
                 f"RUN mkdir -p {container_home}/.pi/agent/extensions && \\",
-                f"    git clone --depth 1 https://github.com/basnijholt/pi-anthropic-vertex.git \\",
+                "    git clone https://github.com/basnijholt/pi-anthropic-vertex.git \\",
                 f"        {container_home}/.pi/agent/extensions/pi-anthropic-vertex && \\",
                 f"    cd {container_home}/.pi/agent/extensions/pi-anthropic-vertex && \\",
+                "    git checkout 2f7eebe2928d779b914b810a682d371433708c67 && \\",
                 "    npm install --quiet --no-fund --no-audit",
             ]
         return lines
@@ -157,7 +159,7 @@ fi
         """
         defaults: dict[str, str] = {
             # Vertex AI — Claude via basnijholt/pi-anthropic-vertex extension.
-            # Falls back to gemini if the extension isn't loaded or project not set.
+            # Switch to google-vertex/gemini-2.5-pro if GOOGLE_CLOUD_PROJECT is unset.
             "vertex": "--model anthropic-vertex/claude-sonnet-4-6",
             # Direct Anthropic API
             "anthropic": "--model anthropic/claude-sonnet-4-6",
