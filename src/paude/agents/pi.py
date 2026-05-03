@@ -193,14 +193,14 @@ fi
             --agent-args "--model anthropic-vertex/claude-sonnet-4-5@20250929" my-session
         """
         defaults: dict[str, str] = {
-            # Vertex AI — Claude via basnijholt/pi-anthropic-vertex extension.
-            # Switch to google-vertex/gemini-2.5-pro if GOOGLE_CLOUD_PROJECT is unset.
-            "vertex": "--model anthropic-vertex/claude-sonnet-4-6",
+            # Vertex AI — use --models to restrict Ctrl+P cycling to
+            # wired-up providers only (hides github-copilot etc.).
+            "vertex": "--model anthropic-vertex/claude-sonnet-4-6 --models anthropic-vertex/*,google-vertex/*",
             # Direct Anthropic API
-            "anthropic": "--model anthropic/claude-sonnet-4-6",
+            "anthropic": "--model anthropic/claude-sonnet-4-6 --models anthropic/*",
             # Google AI direct API (GEMINI_API_KEY)
-            "google": "--model google-ai/gemini-2.5-pro",
-            # GitHub Copilot — let Pi pick its default Copilot model
+            "google": "--model google-ai/gemini-2.5-pro --models google-ai/*",
+            # GitHub Copilot — not yet wired up; placeholder for future use
             "github": "--provider github-copilot",
         }
         return defaults.get(self._config.provider or "", "")
