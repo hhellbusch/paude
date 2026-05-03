@@ -58,8 +58,9 @@ AGENT_PROVIDERS: dict[str, dict[str, AgentProviderConfig]] = {
         # Gemini via Vertex AI — uses GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
         # Also supports Anthropic/Claude via Vertex when ANTHROPIC_VERTEX_PROJECT_ID
         # is set and ~/.pi/agent/models.json is seeded (handled by PiAgent).
+        # CLOUD_ML_REGION mirrors the Claude Code setup (typically "global" for 4.x models).
         "vertex": AgentProviderConfig(
-            extra_passthrough_env_vars=["ANTHROPIC_VERTEX_PROJECT_ID"],
+            extra_passthrough_env_vars=["ANTHROPIC_VERTEX_PROJECT_ID", "CLOUD_ML_REGION"],
         ),
         # Gemini via Google AI API — requires GEMINI_API_KEY.
         "google": AgentProviderConfig(

@@ -178,27 +178,51 @@ fi
         if provider != "vertex":
             return ""
 
-        # Build the static models.json for Vertex Anthropic.  The project ID is
-        # substituted at runtime via the env var — we use a shell heredoc so the
-        # container picks up whatever value was passed through.
+        # Build the static models.json for Vertex Anthropic.  The project ID and
+        # location are substituted at runtime via env vars — we use a shell heredoc
+        # so the container picks up whatever values were passed through.
+        # Model IDs sourced from https://docs.anthropic.com/claude/reference/claude-on-vertex-ai
+        # - Newest models (Opus 4.7, Opus 4.6, Sonnet 4.6) use no date suffix
+        # - Older versioned models use @YYYYMMDD snapshot suffix
         models_config = {
             "providers": {
                 "anthropic-vertex": {
-                    "baseUrl": "https://us-east5-aiplatform.googleapis.com/v1/projects/${ANTHROPIC_VERTEX_PROJECT_ID}/locations/us-east5/publishers/anthropic/models",
+                    "baseUrl": (
+                        "https://${CLOUD_ML_REGION}-aiplatform.googleapis.com"
+                        "/v1/projects/${ANTHROPIC_VERTEX_PROJECT_ID}"
+                        "/locations/${CLOUD_ML_REGION}"
+                        "/publishers/anthropic/models"
+                    ),
                     "api": "anthropic-messages",
                     "authHeader": True,
                     "apiKey": "!gcloud auth print-access-token",
                     "models": [
                         {
-                            "id": "claude-opus-4@20250514",
-                            "name": "Vertex Claude Opus 4",
+                            "id": "claude-opus-4-7",
+                            "name": "Vertex Claude Opus 4.7",
                             "reasoning": True,
                             "input": ["text", "image"],
-                            "contextWindow": 200000,
+                            "contextWindow": 1000000,
                             "maxTokens": 32000,
                         },
                         {
-                            "id": "claude-sonnet-4-5@20250514",
+                            "id": "claude-sonnet-4-6",
+                            "name": "Vertex Claude Sonnet 4.6",
+                            "reasoning": True,
+                            "input": ["text", "image"],
+                            "contextWindow": 1000000,
+                            "maxTokens": 16000,
+                        },
+                        {
+                            "id": "claude-opus-4-6",
+                            "name": "Vertex Claude Opus 4.6",
+                            "reasoning": True,
+                            "input": ["text", "image"],
+                            "contextWindow": 1000000,
+                            "maxTokens": 32000,
+                        },
+                        {
+                            "id": "claude-sonnet-4-5@20250929",
                             "name": "Vertex Claude Sonnet 4.5",
                             "reasoning": True,
                             "input": ["text", "image"],
@@ -206,16 +230,8 @@ fi
                             "maxTokens": 16000,
                         },
                         {
-                            "id": "claude-3-5-sonnet@20241022",
-                            "name": "Vertex Claude 3.5 Sonnet",
-                            "reasoning": True,
-                            "input": ["text", "image"],
-                            "contextWindow": 200000,
-                            "maxTokens": 8192,
-                        },
-                        {
-                            "id": "claude-3-haiku@20240307",
-                            "name": "Vertex Claude 3 Haiku",
+                            "id": "claude-haiku-4-5@20251001",
+                            "name": "Vertex Claude Haiku 4.5",
                             "reasoning": False,
                             "input": ["text", "image"],
                             "contextWindow": 200000,
@@ -231,6 +247,9 @@ fi
 
 # Seed models.json for Vertex Anthropic support (only when project ID is set)
 models_json="$agent_dir/models.json"
+# Default to "global" — same region Claude Code uses, required for 4.x models.
+# Override by setting CLOUD_ML_REGION on the host before paude create.
+export CLOUD_ML_REGION="${{CLOUD_ML_REGION:-global}}"
 if [ -n "${{ANTHROPIC_VERTEX_PROJECT_ID:-}}" ] && [ ! -f "$models_json" ]; then
     cat > "$models_json" << 'MODELS_EOF'
 {models_json_str}
