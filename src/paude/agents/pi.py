@@ -152,9 +152,33 @@ fi
 {models_json_block}"""
 
     def launch_command(self, args: str) -> str:
-        if args:
-            return f"pi {args}"
-        return "pi"
+        default_flags = self._default_model_flags()
+        # Don't override if the user explicitly specified --model or --provider
+        if "--provider" in (args or "") or "--model" in (args or ""):
+            return f"pi {args}" if args else "pi"
+        parts = ["pi", default_flags, args]
+        return " ".join(p for p in parts if p).strip()
+
+    def _default_model_flags(self) -> str:
+        """Return --model flag with Pi's provider/model shorthand for the configured provider.
+
+        Pi resolves `--model provider/id` without needing a separate --provider flag.
+        Defaults below are chosen to match the most capable model each provider
+        exposes to pi out of the box.  The user can override at session creation:
+          paude create --agent pi --provider vertex \\
+            --agent-args "--model google-vertex/gemini-2.5-pro" my-session
+        """
+        defaults: dict[str, str] = {
+            # anthropic-vertex custom provider (seeded via models.json) — Claude Sonnet 4.6
+            "vertex": "--model anthropic-vertex/claude-sonnet-4-6",
+            # Direct Anthropic API
+            "anthropic": "--model anthropic/claude-sonnet-4-6",
+            # Google AI direct API (GEMINI_API_KEY)
+            "google": "--model google-ai/gemini-2.5-pro",
+            # GitHub Copilot — let Pi pick its default Copilot model
+            "github": "--provider github-copilot",
+        }
+        return defaults.get(self._config.provider or "", "")
 
     def host_config_mounts(self, home: Path) -> list[str]:
         mounts: list[str] = []
