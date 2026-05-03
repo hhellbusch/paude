@@ -83,12 +83,13 @@ Then edit it to set the values you want. Any field set to `null` or omitted uses
   "defaults": {
     "backend": "podman",
     "agent": "pi",
-    "provider": "vertex"
+    "provider": "vertex",
+    "git": true
   }
 }
 ```
 
-With this, `paude create --yolo --git my-session` runs Pi against Vertex AI using Claude Sonnet by default. Switch models at create time with `--agent-args "--model google-vertex/gemini-2.5-pro"` or inside the session with Pi's `/model` command.
+With this, `paude create --yolo my-session` runs Pi against Vertex AI using Claude Sonnet by default and **pushes the workspace on create** (`git` defaults to `false` if omitted). Switch models at create time with `--agent-args "--model google-vertex/gemini-2.5-pro"` or inside the session with Pi's `/model` command.
 
 **Pi on Vertex with research domains:**
 
