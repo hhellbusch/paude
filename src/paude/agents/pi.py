@@ -13,7 +13,7 @@ from paude.agents.base import (
 from paude.mounts import resolve_path
 
 _VERTEX_EXTENSION_REPO = "https://github.com/hhellbusch/pi-anthropic-vertex.git"
-_VERTEX_EXTENSION_SHA = "4f2969362553ca5da00870448669f7ee1c45f143"
+_VERTEX_EXTENSION_SHA = "4938be6fbf3f94d5d6119409b48de556e00f200d"
 
 
 class PiAgent:
