@@ -215,9 +215,9 @@ fi
             "providers": {
                 "anthropic-vertex": {
                     "baseUrl": (
-                        "https://${CLOUD_ML_REGION}-aiplatform.googleapis.com"
+                        "https://${ANTHROPIC_VERTEX_REGION}-aiplatform.googleapis.com"
                         "/v1/projects/${ANTHROPIC_VERTEX_PROJECT_ID}"
-                        "/locations/${CLOUD_ML_REGION}"
+                        "/locations/${ANTHROPIC_VERTEX_REGION}"
                         "/publishers/anthropic/models"
                     ),
                     "api": "anthropic-messages",
@@ -274,9 +274,11 @@ fi
 
 # Seed models.json for Vertex Anthropic support (only when project ID is set)
 models_json="$agent_dir/models.json"
-# Default to "global" — same region Claude Code uses, required for 4.x models.
-# Override by setting CLOUD_ML_REGION on the host before paude create.
-export CLOUD_ML_REGION="${{CLOUD_ML_REGION:-global}}"
+# us-east5 is the documented Anthropic Vertex region.
+# Override by setting ANTHROPIC_VERTEX_REGION on the host before paude create.
+# NOTE: CLOUD_ML_REGION=global (used by Claude Code) is intentionally NOT used here
+# because "global-aiplatform.googleapis.com" is not a valid Anthropic endpoint.
+export ANTHROPIC_VERTEX_REGION="${{ANTHROPIC_VERTEX_REGION:-us-east5}}"
 if [ -n "${{ANTHROPIC_VERTEX_PROJECT_ID:-}}" ] && [ ! -f "$models_json" ]; then
     cat > "$models_json" << 'MODELS_EOF'
 {models_json_str}
