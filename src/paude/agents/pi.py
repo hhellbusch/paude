@@ -57,6 +57,9 @@ class PiAgent:
         # unnecessary in a container and slow cold starts.
         creds.extra_env_vars["PI_OFFLINE"] = "1"
         creds.extra_env_vars["NODE_USE_ENV_PROXY"] = "1"
+        # Suppress the "EnvHttpProxyAgent is experimental" undici warning —
+        # the proxy works correctly, the warning is just noise in containers.
+        creds.extra_env_vars["NODE_NO_WARNINGS"] = "1"
 
         extra_domains = ["nodejs"]
         if creds.resolved_provider_name == "github":
@@ -94,7 +97,7 @@ class PiAgent:
             "# Install Node.js 22 for Pi coding agent",
             "USER root",
             "RUN dnf module enable nodejs:22 -y 2>/dev/null || true && \\",
-            "    dnf install -y nodejs npm python3 python3-pip && dnf clean all",
+            "    dnf install -y nodejs npm python3 python3-pip ripgrep fd-find && dnf clean all",
             "",
             "# Install Pi coding agent",
             "RUN npm install -g @mariozechner/pi-coding-agent",
