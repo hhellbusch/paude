@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import ipaddress
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,7 @@ PAUDE_LABEL_YOLO = "paude.io/yolo"
 PAUDE_LABEL_PROVIDER = "paude.io/provider"
 PAUDE_LABEL_OTEL_PORTS = "paude.io/otel-ports"
 PAUDE_LABEL_OTEL_ENDPOINT = "paude.io/otel-endpoint"
+PAUDE_LABEL_UPSTREAM_CA = "paude.io/upstream-ca-path"
 
 PROXY_BLOCKED_LOG_PATH = "/tmp/paude-proxy-blocked.log"  # noqa: S108
 
@@ -184,6 +186,11 @@ def build_session_env(
 
     env["PAUDE_SUPPRESS_PROMPTS"] = "1"
 
+    if config.pi_extensions:
+        from paude.constants import PAUDE_PI_EXTENSIONS_ENV
+
+        env[PAUDE_PI_EXTENSIONS_ENV] = json.dumps(config.pi_extensions)
+
     if proxy_name:
         from paude.environment import build_proxy_environment
 
@@ -306,6 +313,19 @@ def gather_proxy_credentials(
     return creds
 
 
+def parse_pi_extensions_json(raw: str | None) -> list[str]:
+    """Parse ``PAUDE_PI_EXTENSIONS`` JSON (array of strings) from container env."""
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(value, list):
+        return []
+    return [x for x in value if isinstance(x, str) and x]
+
+
 def generate_sandbox_config_script(
     agent_name: str,
     workspace: str,
@@ -313,13 +333,20 @@ def generate_sandbox_config_script(
     provider: str | None = None,
     *,
     yolo: bool = False,
+    pi_extensions: list[str] | None = None,
 ) -> str:
     """Generate the sandbox config bash script for an agent."""
     from paude.agents import get_agent
     from paude.constants import CONTAINER_HOME
 
     agent = get_agent(agent_name, provider=provider)
-    return agent.apply_sandbox_config(CONTAINER_HOME, workspace, args, yolo=yolo)
+    return agent.apply_sandbox_config(
+        CONTAINER_HOME,
+        workspace,
+        args,
+        yolo=yolo,
+        pi_extensions=pi_extensions,
+    )
 
 
 def build_ssh_backend(

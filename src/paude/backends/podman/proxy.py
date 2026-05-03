@@ -19,6 +19,7 @@ from paude.backends.shared import (
     PAUDE_LABEL_DOMAINS,
     PAUDE_LABEL_OTEL_PORTS,
     PAUDE_LABEL_PROXY_IMAGE,
+    PAUDE_LABEL_UPSTREAM_CA,
     PROXY_BLOCKED_LOG_PATH,
     SYS_CA_BUNDLE_PATHS,
     derive_agent_ip,
@@ -139,11 +140,11 @@ class PodmanProxyManager:
 
     def get_config_from_labels(
         self, session_name: str
-    ) -> tuple[str, list[str], list[int]] | None:
+    ) -> tuple[str, list[str], list[int], str | None] | None:
         """Read proxy configuration from the main container's labels.
 
         Returns:
-            Tuple of (proxy_image, domains, otel_ports) or None.
+            Tuple of (proxy_image, domains, otel_ports, upstream_ca_path) or None.
         """
         container = find_container_by_session_name(self._runner, session_name)
         if container is None:
@@ -164,7 +165,9 @@ class PodmanProxyManager:
         otel_ports_str = labels.get(PAUDE_LABEL_OTEL_PORTS, "")
         otel_ports = [int(p) for p in otel_ports_str.split(",") if p]
 
-        return (proxy_image, domains, otel_ports)
+        upstream_ca = labels.get(PAUDE_LABEL_UPSTREAM_CA) or None
+
+        return (proxy_image, domains, otel_ports, upstream_ca)
 
     def start_if_needed(
         self,
@@ -187,7 +190,7 @@ class PodmanProxyManager:
             return
 
         # Recreate the missing proxy
-        proxy_image, domains, otel_ports = proxy_config
+        proxy_image, domains, otel_ports, upstream_ca_path = proxy_config
         nname = network_name(session_name)
         ca_vol = ca_volume_name(session_name)
 
@@ -213,6 +216,7 @@ class PodmanProxyManager:
             credentials=credentials,
             allowed_clients=agent_ip,
             secret_refs=secret_refs,
+            upstream_ca_path=upstream_ca_path,
         )
         self._proxy_runner.start_session_proxy(pname)
 
@@ -324,6 +328,7 @@ class PodmanProxyManager:
         allowed_domains: list[str] | None,
         otel_ports: list[int] | None = None,
         credentials: dict[str, str] | None = None,
+        upstream_ca_path: str | None = None,
     ) -> tuple[str, str | None]:
         """Create a proxy container for a session.
 
@@ -370,6 +375,7 @@ class PodmanProxyManager:
                 credentials=credentials,
                 allowed_clients=agent_ip,
                 secret_refs=secret_refs,
+                upstream_ca_path=upstream_ca_path,
             )
         except Exception:
             volume_mgr.remove_volume(ca_vol, force=True)

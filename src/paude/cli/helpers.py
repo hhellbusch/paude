@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import typer
 
@@ -229,6 +231,68 @@ def _get_provider_aliases(
         return get_provider(resolved).domain_aliases
     except ValueError:
         return None
+
+
+def openai_api_hostname_from_environ() -> str | None:
+    """Return hostname from OPENAI_BASE_URL or OPENAI_API_BASE if set and parseable."""
+    for key in ("OPENAI_BASE_URL", "OPENAI_API_BASE"):
+        raw = (os.environ.get(key) or "").strip()
+        if not raw:
+            continue
+        if "://" not in raw:
+            raw = f"http://{raw}"
+        parsed = urlparse(raw)
+        host = (parsed.hostname or "").strip()
+        if host:
+            return host
+    return None
+
+
+_PROXY_DEFAULT_PORTS: frozenset[int] = frozenset({80, 443})
+
+
+def openai_api_port_from_environ() -> int | None:
+    """Return a non-standard port from OPENAI_BASE_URL or OPENAI_API_BASE.
+
+    Returns None when the URL is absent, unparseable, or uses a port already
+    open in the proxy by default (80, 443).
+    """
+    for key in ("OPENAI_BASE_URL", "OPENAI_API_BASE"):
+        raw = (os.environ.get(key) or "").strip()
+        if not raw:
+            continue
+        if "://" not in raw:
+            raw = f"http://{raw}"
+        parsed = urlparse(raw)
+        port = parsed.port
+        if port and port not in _PROXY_DEFAULT_PORTS:
+            return port
+    return None
+
+
+def append_inference_endpoint_hosts_to_allowlist(
+    expanded_domains: list[str],
+    *,
+    provider_name: str | None,
+    otel_endpoint: str | None,
+) -> None:
+    """Append OTEL collector and OpenAI-compatible API hosts to an allowlist.
+
+    When OPENAI_BASE_URL is set, appends that host to the proxy allowlist
+    regardless of the declared provider.
+    """
+    from paude.domains import is_unrestricted
+    from paude.otel import parse_otel_endpoint
+
+    if is_unrestricted(expanded_domains):
+        return
+    if otel_endpoint:
+        hostname, _ = parse_otel_endpoint(otel_endpoint)
+        if hostname and hostname not in expanded_domains:
+            expanded_domains.append(hostname)
+    host = openai_api_hostname_from_environ()
+    if host and host not in expanded_domains:
+        expanded_domains.append(host)
 
 
 def _expand_allowed_domains(

@@ -69,7 +69,8 @@ class CopilotAgent:
         ]
 
     def apply_sandbox_config(
-        self, home: str, workspace: str, args: str, *, yolo: bool = False
+        self, home: str, workspace: str, args: str, *, yolo: bool = False,
+        pi_extensions: list[str] | None = None,
     ) -> str:
         return f"""\
 #!/bin/bash

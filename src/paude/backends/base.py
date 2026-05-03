@@ -88,6 +88,8 @@ class SessionConfig:
     ports: list[tuple[int, int]] = field(default_factory=list)
     otel_ports: list[int] = field(default_factory=list)
     otel_endpoint: str | None = None
+    pi_extensions: list[str] = field(default_factory=list)
+    upstream_ca_path: str | None = None
 
 
 class Backend(Protocol):

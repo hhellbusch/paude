@@ -44,6 +44,10 @@ _PROVIDERS: dict[str, ProviderConfig] = {
         name="openai",
         display_name="OpenAI",
         secret_env_vars=["OPENAI_API_KEY"],
+        passthrough_env_vars=[
+            "OPENAI_BASE_URL",
+            "OPENAI_API_BASE",
+        ],
         domain_aliases=["openai"],
     ),
     "anthropic": ProviderConfig(

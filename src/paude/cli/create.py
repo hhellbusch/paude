@@ -13,6 +13,7 @@ from paude.cli.helpers import (
     _expand_allowed_domains,
     _parse_agent_args,
     _prepare_session_create,
+    append_inference_endpoint_hosts_to_allowlist,
 )
 
 
@@ -177,6 +178,27 @@ def session_create(
         typer.Option(
             "--otel-endpoint",
             help="OTLP collector endpoint for telemetry export (e.g., http://collector:4318).",
+        ),
+    ] = None,
+    pi_extension: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--pi-extension",
+            help=(
+                "Pi only: argument to `pi install` (e.g. git:https://github.com/org/repo.git). "
+                "Repeatable."
+            ),
+        ),
+    ] = None,
+    upstream_ca: Annotated[
+        str | None,
+        typer.Option(
+            "--upstream-ca",
+            help=(
+                "Path on the host to a PEM CA certificate to inject into the proxy "
+                "container's trust store.  Required when OPENAI_BASE_URL uses a "
+                "self-signed TLS certificate."
+            ),
         ),
     ] = None,
     host: Annotated[
@@ -348,12 +370,29 @@ def session_create(
     if prompt_file is not None:
         parsed_args = ["-p", prompt_file.read_text()]
 
+    # Append OPENAI_BASE_URL host to allowlist when set
+    append_inference_endpoint_hosts_to_allowlist(
+        expanded_domains,
+        provider_name=r_provider,
+        otel_endpoint=r_otel_endpoint,
+    )
+
     # Compute OTEL proxy ports (non-standard ports to allow through proxy)
     otel_ports: list[int] = []
     if r_otel_endpoint:
         from paude.otel import otel_proxy_ports
 
         otel_ports = otel_proxy_ports(r_otel_endpoint)
+
+    # Open the LLM API port whenever OPENAI_BASE_URL is set
+    from paude.cli.helpers import openai_api_port_from_environ
+
+    llm_port = openai_api_port_from_environ()
+    if llm_port is not None and llm_port not in otel_ports:
+        otel_ports.append(llm_port)
+
+    # Resolve pi_extensions
+    r_pi_extensions = pi_extension or []
 
     if r_backend in (BackendType.podman, BackendType.docker):
         from paude.cli.create_podman import create_podman_session
@@ -380,6 +419,8 @@ def session_create(
             gpu=r_gpu,
             otel_ports=otel_ports,
             otel_endpoint=r_otel_endpoint,
+            pi_extensions=r_pi_extensions,
+            upstream_ca_path=upstream_ca,
         )
     else:
         from paude.cli.create_openshift import create_openshift_session
@@ -407,4 +448,5 @@ def session_create(
             build_resources=r_openshift_build_resources,
             otel_ports=otel_ports,
             otel_endpoint=r_otel_endpoint,
+            pi_extensions=r_pi_extensions,
         )

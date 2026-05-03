@@ -117,8 +117,33 @@ class PiAgent:
         return lines
 
     def apply_sandbox_config(
-        self, home: str, workspace: str, args: str, *, yolo: bool = False
+        self,
+        home: str,
+        workspace: str,
+        args: str,
+        *,
+        yolo: bool = False,
+        pi_extensions: list[str] | None = None,
     ) -> str:
+        import base64
+        import json as _json
+
+        exts = [x for x in (pi_extensions or []) if isinstance(x, str) and x.strip()]
+        ext_block = ""
+        if exts:
+            b64 = base64.b64encode(_json.dumps(exts).encode()).decode()
+            ext_block = f"""
+# Pi extensions from paude create (runs before first agent start; needs network)
+_PAUDE_PI_EXT_B64='{b64}'
+if command -v jq >/dev/null 2>&1 && command -v pi >/dev/null 2>&1; then
+  echo "$_PAUDE_PI_EXT_B64" | base64 -d | jq -r '.[]' | while IFS= read -r _pi_spec || [ -n "$_pi_spec" ]; do
+    [ -z "$_pi_spec" ] && continue
+    echo "paude: installing Pi extension: $_pi_spec" >&2
+    pi install "$_pi_spec" || echo "paude: warning: pi install failed for: $_pi_spec" >&2
+  done
+fi
+"""
+
         return f"""\
 #!/bin/bash
 # Pre-configure Pi for containerized operation
@@ -144,7 +169,7 @@ if [ -f /credentials/pi-auth.json ]; then
     cp /credentials/pi-auth.json "$agent_dir/auth.json"
     chmod 600 "$agent_dir/auth.json" 2>/dev/null || true
 fi
-"""
+{ext_block}"""
 
     def launch_command(self, args: str) -> str:
         default_flags = self._default_model_flags()
