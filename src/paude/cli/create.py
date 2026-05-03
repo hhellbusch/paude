@@ -391,8 +391,8 @@ def session_create(
     if llm_port is not None and llm_port not in otel_ports:
         otel_ports.append(llm_port)
 
-    # Resolve pi_extensions
-    r_pi_extensions = pi_extension or []
+    # Resolve pi_extensions — CLI flags override, user defaults as fallback
+    r_pi_extensions = pi_extension or user_defaults.pi_extensions or []
 
     if r_backend in (BackendType.podman, BackendType.docker):
         from paude.cli.create_podman import create_podman_session

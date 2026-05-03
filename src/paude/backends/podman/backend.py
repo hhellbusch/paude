@@ -189,6 +189,9 @@ class PodmanBackend:
 
     def _sync_sandbox_config(self, cname: str, session_name: str) -> None:
         """Generate and write agent sandbox config script into container."""
+        from paude.backends.shared import parse_pi_extensions_json
+        from paude.constants import PAUDE_PI_EXTENSIONS_ENV
+
         labels = self._get_session_labels(session_name)
         agent_name = str(labels.get(PAUDE_LABEL_AGENT, "claude"))
         provider = labels.get(PAUDE_LABEL_PROVIDER) or None
@@ -198,8 +201,12 @@ class PodmanBackend:
         )
         args = self._runner.get_container_env(cname, "PAUDE_AGENT_ARGS") or ""
         yolo = labels.get(PAUDE_LABEL_YOLO) == "1"
+        pi_exts = parse_pi_extensions_json(
+            self._runner.get_container_env(cname, PAUDE_PI_EXTENSIONS_ENV)
+        )
         content = generate_sandbox_config_script(
-            agent_name, workspace, args, provider=provider, yolo=yolo
+            agent_name, workspace, args, provider=provider, yolo=yolo,
+            pi_extensions=pi_exts or None,
         )
         self._runner.inject_file(
             cname,
