@@ -69,11 +69,6 @@ AGENT_PROVIDERS: dict[str, dict[str, AgentProviderConfig]] = {
         # Run `pi /login` once on the host to populate the auth file, then
         # PiAgent will mount it automatically.
         "github": AgentProviderConfig(),
-        # OpenAI-compatible HTTP API (llama.cpp / RamaLama, vLLM, etc.).
-        # Set OPENAI_BASE_URL and OPENAI_API_KEY.
-        "openai": AgentProviderConfig(
-            model_config={"primary": "openai/library/qwen2.5-coder"},
-        ),
     },
 }
 

@@ -52,6 +52,14 @@ class PiAgent:
         if not os.environ.get("GOOGLE_CLOUD_LOCATION") and os.environ.get("CLOUD_ML_REGION"):
             creds.extra_env_vars["GOOGLE_CLOUD_LOCATION"] = os.environ["CLOUD_ML_REGION"]
 
+        # Map OPENAI_BASE_URL → OPENAI_COMPAT_BASE_URL for pi-openai-compat extension.
+        # Avoids triggering Pi's built-in openai provider (which floods the picker
+        # with GPT models that don't exist on the private endpoint).
+        if os.environ.get("OPENAI_BASE_URL"):
+            creds.extra_env_vars["OPENAI_COMPAT_BASE_URL"] = os.environ["OPENAI_BASE_URL"]
+        if os.environ.get("OPENAI_API_KEY"):
+            creds.extra_env_vars["OPENAI_COMPAT_API_KEY"] = os.environ["OPENAI_API_KEY"]
+
         extra_domains = ["nodejs"]
         if creds.resolved_provider_name == "github":
             extra_domains.extend(["github", "copilot"])
@@ -195,7 +203,7 @@ fi
         defaults: dict[str, str] = {
             # Vertex AI — use --models to restrict Ctrl+P cycling to
             # wired-up providers only (hides github-copilot etc.).
-            "vertex": "--model anthropic-vertex/claude-sonnet-4-6 --models anthropic-vertex/*,google-vertex/*",
+            "vertex": "--model anthropic-vertex/claude-sonnet-4-6 --models anthropic-vertex/*,google-vertex/*,openai-compat/*",
             # Direct Anthropic API
             "anthropic": "--model anthropic/claude-sonnet-4-6 --models anthropic/*",
             # Google AI direct API (GEMINI_API_KEY)
