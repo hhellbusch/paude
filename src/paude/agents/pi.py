@@ -13,7 +13,8 @@ from paude.agents.base import (
 from paude.mounts import resolve_path
 
 _VERTEX_EXTENSION_REPO = "https://github.com/hhellbusch/pi-anthropic-vertex.git"
-_VERTEX_EXTENSION_SHA = "4938be6fbf3f94d5d6119409b48de556e00f200d"
+
+_PAUDE_EXTENSION_REPO = "https://github.com/hhellbusch/paude-pi-extension.git"
 
 
 class PiAgent:
@@ -117,13 +118,11 @@ class PiAgent:
                 "",
                 "# Install pi-anthropic-vertex extension for Claude models via Vertex AI.",
                 "# Uses @anthropic-ai/vertex-sdk + ADC — same auth flow as Claude Code on Vertex.",
-                f"# Pinned to {_VERTEX_EXTENSION_SHA[:7]}.",
                 f"# Source: {_VERTEX_EXTENSION_REPO}",
                 f"RUN mkdir -p {container_home}/.pi/agent/extensions && \\",
                 f"    git clone {_VERTEX_EXTENSION_REPO} \\",
                 f"        {ext_dir} && \\",
                 f"    cd {ext_dir} && \\",
-                f"    git checkout {_VERTEX_EXTENSION_SHA} && \\",
                 "    npm install --quiet --no-fund --no-audit",
             ]
         return lines
@@ -140,7 +139,9 @@ class PiAgent:
         import base64
         import json as _json
 
-        exts = [x for x in (pi_extensions or []) if isinstance(x, str) and x.strip()]
+        builtin = [f"git:{_PAUDE_EXTENSION_REPO}"]
+        user = [x for x in (pi_extensions or []) if isinstance(x, str) and x.strip()]
+        exts = builtin + [x for x in user if x not in builtin]
         ext_block = ""
         if exts:
             b64 = base64.b64encode(_json.dumps(exts).encode()).decode()
