@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from paude.agents.base import (
@@ -42,6 +43,11 @@ class PiAgent:
         # Suppress the "EnvHttpProxyAgent is experimental" undici warning —
         # the proxy works correctly, the warning is just noise in containers.
         creds.extra_env_vars["NODE_NO_WARNINGS"] = "1"
+
+        # Pi checks GOOGLE_CLOUD_LOCATION (not CLOUD_ML_REGION) to show google-vertex
+        # models as available.  Derive it from CLOUD_ML_REGION when not explicitly set.
+        if not os.environ.get("GOOGLE_CLOUD_LOCATION") and os.environ.get("CLOUD_ML_REGION"):
+            creds.extra_env_vars["GOOGLE_CLOUD_LOCATION"] = os.environ["CLOUD_ML_REGION"]
 
         extra_domains = ["nodejs"]
         if creds.resolved_provider_name == "github":
