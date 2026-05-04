@@ -354,18 +354,35 @@ class ImageManager:
     def _merge_proxy_build_args(
         self, build_args: dict[str, str] | None
     ) -> dict[str, str]:
-        """Merge host proxy environment variables into build args.
+        """Merge host proxy and CA certificate environment variables into build args.
 
         Forwards HTTP_PROXY, HTTPS_PROXY, NO_PROXY (and lowercase variants)
         from the host environment so package managers inside the build
         (dnf, apt, etc.) can reach mirrors through a corporate proxy.
+
+        If PAUDE_BUILD_CA_BUNDLE points to a PEM file, its contents are
+        base64-encoded and forwarded as CORPORATE_CA_CERT_B64 so the
+        Dockerfile can install it into the container trust store before any
+        network operations (required for MITM SSL-inspecting proxies).
+
         Explicit build_args values always take precedence over env vars.
         """
+        import base64
+
         merged: dict[str, str] = {}
         for var in _PROXY_ENV_VARS:
             value = os.environ.get(var)
             if value:
                 merged[var] = value
+
+        ca_bundle = os.environ.get("PAUDE_BUILD_CA_BUNDLE")
+        if ca_bundle:
+            ca_path = Path(ca_bundle)
+            if ca_path.is_file():
+                merged["CORPORATE_CA_CERT_B64"] = base64.b64encode(
+                    ca_path.read_bytes()
+                ).decode()
+
         if build_args:
             merged.update(build_args)
         return merged

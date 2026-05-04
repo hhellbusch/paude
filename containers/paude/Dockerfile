@@ -1,5 +1,16 @@
 FROM quay.io/centos/centos:stream10
 
+# Inject corporate CA certificate for MITM SSL-inspecting proxies.
+# Must run before any dnf/curl operations so all subsequent network calls trust it.
+# Set PAUDE_BUILD_CA_BUNDLE=/path/to/corp-ca.pem on the host; paude passes it here
+# as base64 to avoid --build-arg newline quoting issues.
+ARG CORPORATE_CA_CERT_B64=""
+RUN if [ -n "$CORPORATE_CA_CERT_B64" ]; then \
+    echo "$CORPORATE_CA_CERT_B64" | base64 -d \
+        > /etc/pki/ca-trust/source/anchors/corporate-ca.pem && \
+    update-ca-trust extract; \
+fi
+
 # Enable CRB and EPEL for additional packages
 RUN dnf install -y dnf-plugins-core && \
     dnf config-manager --set-enabled crb && \
