@@ -25,6 +25,21 @@ from paude.platform import is_macos
 # Re-export for backward compatibility
 __all__ = ["BuildContext", "ImageManager", "prepare_build_context"]
 
+# Standard proxy env vars forwarded to container builds as --build-arg so
+# package managers (dnf, apt, etc.) can reach mirrors through a corporate proxy.
+# Both upper- and lower-case variants are forwarded; Docker/Podman treat these
+# as predefined build args that flow into RUN instructions automatically.
+_PROXY_ENV_VARS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "FTP_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "ftp_proxy",
+)
+
 
 def _detect_native_platform() -> str:
     """Detect the native platform for container builds."""
@@ -336,6 +351,25 @@ class ImageManager:
                     raise
             return tag
 
+    def _merge_proxy_build_args(
+        self, build_args: dict[str, str] | None
+    ) -> dict[str, str]:
+        """Merge host proxy environment variables into build args.
+
+        Forwards HTTP_PROXY, HTTPS_PROXY, NO_PROXY (and lowercase variants)
+        from the host environment so package managers inside the build
+        (dnf, apt, etc.) can reach mirrors through a corporate proxy.
+        Explicit build_args values always take precedence over env vars.
+        """
+        merged: dict[str, str] = {}
+        for var in _PROXY_ENV_VARS:
+            value = os.environ.get(var)
+            if value:
+                merged[var] = value
+        if build_args:
+            merged.update(build_args)
+        return merged
+
     def build_image(
         self,
         dockerfile: Path,
@@ -356,9 +390,9 @@ class ImageManager:
 
         if self.platform:
             cmd.extend(["--platform", self.platform])
-        if build_args:
-            for key, value in build_args.items():
-                cmd.extend(["--build-arg", f"{key}={value}"])
+        effective_build_args = self._merge_proxy_build_args(build_args)
+        for key, value in effective_build_args.items():
+            cmd.extend(["--build-arg", f"{key}={value}"])
         cmd.append(str(context))
         self._engine.run(*cmd, capture=False)
 
@@ -431,9 +465,9 @@ class ImageManager:
             cmd = ["build", "-f", remote_dockerfile, "-t", tag]
             if self.platform:
                 cmd.extend(["--platform", self.platform])
-            if build_args:
-                for key, value in build_args.items():
-                    cmd.extend(["--build-arg", f"{key}={value}"])
+            effective_build_args = self._merge_proxy_build_args(build_args)
+            for key, value in effective_build_args.items():
+                cmd.extend(["--build-arg", f"{key}={value}"])
             cmd.append(remote_dir)
             self._engine.run(*cmd, capture=False)
         finally:
