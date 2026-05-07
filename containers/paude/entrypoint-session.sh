@@ -163,6 +163,17 @@ if [[ -d "$WORKSPACE/$AGENT_CONFIG_DIR" ]]; then
     chmod -R g+rwX "$WORKSPACE/$AGENT_CONFIG_DIR" 2>/dev/null || true
 fi
 
+# Initialize git submodules if the workspace is a git repo.
+# Runs once per new session start (reconnects exit early above).
+# This ensures the agent has a fully populated workspace even when
+# the volume was seeded from a shallow clone or a repo that was
+# cloned without --recurse-submodules.
+if [[ -f "$WORKSPACE/.git" ]] || [[ -d "$WORKSPACE/.git" ]]; then
+    echo "Initializing git submodules in $WORKSPACE..."
+    git -C "$WORKSPACE" submodule update --init --recursive 2>&1 \
+        || echo "WARN: git submodule update failed (non-fatal)" >&2
+fi
+
 if tmux -u has-session -t "$AGENT_SESSION_NAME" 2>/dev/null; then
     exit_if_headless "already running"
     attach_to_session reconnect

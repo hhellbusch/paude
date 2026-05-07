@@ -58,8 +58,8 @@ NATIVE_ARCH := $(shell uname -m | sed 's/x86_64/amd64/')
 
 # Build images locally (native arch, for development)
 build:
-	podman build --platform linux/$(NATIVE_ARCH) -t $(IMAGE_NAME):latest ./containers/paude
-	podman build --platform linux/$(NATIVE_ARCH) -t $(PROXY_IMAGE_NAME):latest ./containers/proxy
+	podman build --platform linux/$(NATIVE_ARCH) -t $(IMAGE_NAME):latest -t $(IMAGE_NAME):latest-$(NATIVE_ARCH) ./containers/paude
+	podman build --platform linux/$(NATIVE_ARCH) -t $(PROXY_IMAGE_NAME):latest -t $(PROXY_IMAGE_NAME):latest-$(NATIVE_ARCH) ./containers/proxy
 
 # Run paude in dev mode (builds images locally)
 run:

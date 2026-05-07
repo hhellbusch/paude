@@ -17,6 +17,7 @@ DNSMASQ_CONF="/tmp/dnsmasq.conf"
     echo "no-resolv"
     echo "no-poll"
     echo "no-daemon"
+    echo "no-hosts"
 
     # Forward to upstream DNS servers from resolv.conf
     if [[ -f /etc/resolv.conf ]]; then
