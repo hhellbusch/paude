@@ -51,24 +51,39 @@ sleep 0.2
 
 # ── OpenAI-compat credential injection ──────────────────────────────
 # If a private LLM endpoint key was forwarded to the proxy (set by paude via
-# gather_proxy_credentials — NOT by the agent container), generate a
-# paude-proxy credentials config so the proxy injects Authorization: Bearer
-# for requests to that hostname.  The Pi container never sees the key.
+# gather_proxy_credentials — NOT by the agent container), generate a merged
+# credentials config that adds the bearer entry on top of the proxy's built-in
+# defaults. Setting PAUDE_PROXY_CREDENTIALS_CONFIG replaces the default config
+# entirely, so we must include all default entries to avoid losing GCP ADC and
+# other credential routes (e.g. Vertex AI would break without .googleapis.com).
 if [[ -n "${OPENAI_COMPAT_API_KEY:-}" ]] && [[ -n "${OPENAI_COMPAT_BASE_URL:-}" ]]; then
     _compat_host=$(python3 -c "from urllib.parse import urlparse; print(urlparse('${OPENAI_COMPAT_BASE_URL}').hostname)" 2>/dev/null || true)
     if [[ -n "${_compat_host}" ]]; then
-        _compat_creds_file="/tmp/openai-compat-credentials.json"
-        cat > "${_compat_creds_file}" <<EOF
-{
-  "credentials": [
-    {
-      "env_var": "OPENAI_COMPAT_API_KEY",
-      "injector": "bearer",
-      "domains": ["${_compat_host}"]
-    }
-  ]
-}
-EOF
+        _compat_creds_file="/tmp/merged-credentials.json"
+        # Merge: default embedded config + OpenAI-compat bearer entry.
+        # The default config lives at the path embedded into the binary; we
+        # reconstruct it here so new entries added upstream are not lost.
+        python3 - "${_compat_host}" "${_compat_creds_file}" <<'PYEOF'
+import json, sys
+host, out_path = sys.argv[1], sys.argv[2]
+
+default_entries = [
+    {"env_var": "ANTHROPIC_API_KEY", "injector": "api_key",
+     "params": {"header_name": "x-api-key"}, "domains": [".anthropic.com"]},
+    {"env_var": "OPENAI_API_KEY", "injector": "bearer", "domains": [".openai.com"]},
+    {"env_var": "CURSOR_API_KEY", "injector": "bearer",
+     "domains": [".cursor.com", ".cursorapi.com"]},
+    {"env_var": "GH_TOKEN", "injector": "bearer", "domains": ["api.github.com"]},
+    {"env_var": "GOOGLE_APPLICATION_CREDENTIALS", "injector": "gcloud",
+     "domains": [".googleapis.com"]},
+]
+compat_entry = {"env_var": "OPENAI_COMPAT_API_KEY", "injector": "bearer",
+                "domains": [host]}
+
+merged = {"credentials": default_entries + [compat_entry]}
+with open(out_path, "w") as f:
+    json.dump(merged, f, indent=2)
+PYEOF
         export PAUDE_PROXY_CREDENTIALS_CONFIG="${_compat_creds_file}"
         echo "OpenAI-compat credential injection: ENABLED (${_compat_host})"
     else
