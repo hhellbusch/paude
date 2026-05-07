@@ -311,6 +311,17 @@ def gather_proxy_credentials(
     if gcp_adc_path is not None:
         creds[PROXY_GCP_ADC_ENV] = gcp_adc_path.read_text()
 
+    # Route private LLM credentials to the proxy, not the agent container.
+    # The proxy entrypoint generates a paude-proxy credentials config from these
+    # vars so it can inject Authorization: Bearer for requests to that endpoint.
+    # The agent container receives only the URL (no key), so the Pi process and
+    # any LLM running inside it cannot read the credential.
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    openai_url = os.environ.get("OPENAI_BASE_URL")
+    if openai_key and openai_url:
+        creds["OPENAI_COMPAT_API_KEY"] = openai_key
+        creds["OPENAI_COMPAT_BASE_URL"] = openai_url
+
     return creds
 
 

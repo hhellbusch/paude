@@ -48,6 +48,33 @@ DNSMASQ_PID=$!
 # Give dnsmasq a moment to start
 sleep 0.2
 
+# ── OpenAI-compat credential injection ──────────────────────────────
+# If a private LLM endpoint key was forwarded to the proxy (set by paude via
+# gather_proxy_credentials — NOT by the agent container), generate a
+# paude-proxy credentials config so the proxy injects Authorization: Bearer
+# for requests to that hostname.  The Pi container never sees the key.
+if [[ -n "${OPENAI_COMPAT_API_KEY:-}" ]] && [[ -n "${OPENAI_COMPAT_BASE_URL:-}" ]]; then
+    _compat_host=$(python3 -c "from urllib.parse import urlparse; print(urlparse('${OPENAI_COMPAT_BASE_URL}').hostname)" 2>/dev/null || true)
+    if [[ -n "${_compat_host}" ]]; then
+        _compat_creds_file="/tmp/openai-compat-credentials.json"
+        cat > "${_compat_creds_file}" <<EOF
+{
+  "credentials": [
+    {
+      "env_var": "OPENAI_COMPAT_API_KEY",
+      "injector": "bearer",
+      "domains": ["${_compat_host}"]
+    }
+  ]
+}
+EOF
+        export PAUDE_PROXY_CREDENTIALS_CONFIG="${_compat_creds_file}"
+        echo "OpenAI-compat credential injection: ENABLED (${_compat_host})"
+    else
+        echo "WARN: OPENAI_COMPAT_BASE_URL is set but hostname could not be parsed — skipping injection"
+    fi
+fi
+
 # ── Paude Proxy ─────────────────────────────────────────────────────
 echo "Starting paude-proxy..."
 exec /usr/local/bin/paude-proxy

@@ -56,10 +56,13 @@ class PiAgent:
         # Map OPENAI_BASE_URL → OPENAI_COMPAT_BASE_URL for pi-openai-compat extension.
         # Avoids triggering Pi's built-in openai provider (which floods the picker
         # with GPT models that don't exist on the private endpoint).
+        # NOTE: the URL is not a secret and goes to the agent container so the
+        # pi-openai-compat extension can discover models.  The API key is intentionally
+        # NOT set here — it is routed to the proxy container only via
+        # gather_proxy_credentials in shared.py, so the Pi process (and any LLM
+        # running inside it) never sees the credential.
         if os.environ.get("OPENAI_BASE_URL"):
             creds.extra_env_vars["OPENAI_COMPAT_BASE_URL"] = os.environ["OPENAI_BASE_URL"]
-        if os.environ.get("OPENAI_API_KEY"):
-            creds.extra_env_vars["OPENAI_COMPAT_API_KEY"] = os.environ["OPENAI_API_KEY"]
 
         extra_domains = ["nodejs"]
         if creds.resolved_provider_name == "github":
