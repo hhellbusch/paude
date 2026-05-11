@@ -5,8 +5,11 @@ from __future__ import annotations
 import base64
 import ipaddress
 import json
+import os
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib import parse, request
 
 if TYPE_CHECKING:
     from paude.agents.base import Agent, AgentConfig
@@ -79,6 +82,12 @@ STUB_ADC_JSON = (
 
 # Environment variable name for passing GCP ADC JSON content to the proxy.
 PROXY_GCP_ADC_ENV = "GCP_ADC_JSON"
+PROXY_VERTEX_BEARER_ENV = "PAUDE_VERTEX_BEARER_TOKEN"
+PROXY_VERTEX_PROJECT_ENV = "PAUDE_VERTEX_PROJECT"
+PROXY_VERTEX_REGION_ENV = "PAUDE_VERTEX_REGION"
+VERTEX_AUTH_MODE_ENV = "PAUDE_VERTEX_AUTH_MODE"
+VERTEX_AUTH_MODE_DIRECT = "direct"
+VERTEX_AUTH_MODE_PROXY = "proxy"
 
 # Python snippet executed inside containers to extract the OpenClaw auth token.
 # Used by both Podman and OpenShift backends via exec.
@@ -192,6 +201,10 @@ def build_session_env(
 
         env[PAUDE_PI_EXTENSIONS_ENV] = json.dumps(config.pi_extensions)
 
+    vertex_mode = _resolve_vertex_auth_mode(agent.config)
+    if vertex_mode:
+        env[VERTEX_AUTH_MODE_ENV] = vertex_mode
+
     if proxy_name:
         from paude.environment import build_proxy_environment
 
@@ -202,6 +215,92 @@ def build_session_env(
         env["GH_TOKEN"] = PROXY_MANAGED_CREDENTIAL
 
     return env, agent_args
+
+
+def _resolve_vertex_auth_mode(agent_config: AgentConfig) -> str | None:
+    """Resolve the Vertex auth mode for this agent session.
+
+    Only Pi+Vertex sessions currently consume this mode.
+    """
+    if agent_config.name != "pi" or agent_config.provider != "vertex":
+        return None
+    raw = os.environ.get(VERTEX_AUTH_MODE_ENV, VERTEX_AUTH_MODE_DIRECT).strip().lower()
+    if raw in {VERTEX_AUTH_MODE_PROXY, VERTEX_AUTH_MODE_DIRECT}:
+        return raw
+    return VERTEX_AUTH_MODE_DIRECT
+
+
+def _mint_gcp_access_token_from_adc(adc_json: str) -> str | None:
+    """Exchange an authorized_user ADC refresh token for an access token.
+
+    Returns None when the ADC content is not an authorized_user credential
+    or when the exchange fails.
+    """
+    try:
+        adc = json.loads(adc_json)
+    except json.JSONDecodeError:
+        return None
+
+    refresh_token = str(adc.get("refresh_token", "")).strip()
+    client_id = str(adc.get("client_id", "")).strip()
+    client_secret = str(adc.get("client_secret", "")).strip()
+    token_uri = str(adc.get("token_uri", "https://oauth2.googleapis.com/token")).strip()
+    if not refresh_token or not client_id or not client_secret:
+        return None
+
+    body = parse.urlencode(
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+    ).encode()
+    req = request.Request(
+        token_uri,
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with request.urlopen(req, timeout=10) as resp:  # noqa: S310 - fixed token URI
+            data = json.loads(resp.read().decode())
+    except Exception:
+        return None
+    token = str(data.get("access_token", "")).strip()
+    return token or None
+
+
+def _mint_vertex_bearer_token(adc_json: str | None) -> str | None:
+    """Mint a Vertex bearer token for proxy relay mode.
+
+    Resolution order:
+    1) CLOUDSDK_AUTH_ACCESS_TOKEN from host env (if present)
+    2) `gcloud auth application-default print-access-token`
+    3) Fallback OAuth refresh exchange for authorized_user ADC JSON
+    """
+    env_token = os.environ.get("CLOUDSDK_AUTH_ACCESS_TOKEN", "").strip()
+    if env_token:
+        return env_token
+
+    try:
+        result = subprocess.run(
+            ["gcloud", "auth", "application-default", "print-access-token"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            token = result.stdout.strip()
+            if token:
+                return token
+    except (FileNotFoundError, subprocess.SubprocessError, OSError):
+        pass
+
+    if adc_json:
+        return _mint_gcp_access_token_from_adc(adc_json)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -298,8 +397,6 @@ def gather_proxy_credentials(
     Returns:
         Dict of environment variables for the proxy container.
     """
-    import os
-
     from paude.agents.base import build_secret_environment_from_config
 
     creds = build_secret_environment_from_config(agent_config)
@@ -308,8 +405,10 @@ def gather_proxy_credentials(
     if gh_token:
         creds["GH_TOKEN"] = gh_token
 
+    adc_json: str | None = None
     if gcp_adc_path is not None:
-        creds[PROXY_GCP_ADC_ENV] = gcp_adc_path.read_text()
+        adc_json = gcp_adc_path.read_text()
+        creds[PROXY_GCP_ADC_ENV] = adc_json
 
     # Route private LLM credentials to the proxy, not the agent container.
     # The proxy entrypoint generates a paude-proxy credentials config from these
@@ -321,6 +420,28 @@ def gather_proxy_credentials(
     if openai_key and openai_url:
         creds["OPENAI_COMPAT_API_KEY"] = openai_key
         creds["OPENAI_COMPAT_BASE_URL"] = openai_url
+
+    # Experimental: proxy-mediated Vertex auth path for Pi sessions.
+    # In this mode, paude mints a short-lived bearer token on the host from ADC
+    # and passes it to the proxy for domain-scoped header injection.
+    vertex_mode = _resolve_vertex_auth_mode(agent_config)
+    if vertex_mode == VERTEX_AUTH_MODE_PROXY:
+        creds[VERTEX_AUTH_MODE_ENV] = VERTEX_AUTH_MODE_PROXY
+        project = (
+            os.environ.get("GOOGLE_CLOUD_PROJECT")
+            or os.environ.get("GOOGLE_CLOUD_PROJECT_ID")
+            or os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
+        )
+        region = os.environ.get("GOOGLE_CLOUD_LOCATION") or os.environ.get(
+            "CLOUD_ML_REGION"
+        )
+        if project:
+            creds[PROXY_VERTEX_PROJECT_ENV] = project
+        if region:
+            creds[PROXY_VERTEX_REGION_ENV] = region
+        token = _mint_vertex_bearer_token(adc_json)
+        if token:
+            creds[PROXY_VERTEX_BEARER_ENV] = token
 
     return creds
 

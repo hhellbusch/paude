@@ -14,13 +14,11 @@ from paude.mounts import resolve_path
 
 _VERTEX_EXTENSION_REPO = "https://github.com/hhellbusch/pi-anthropic-vertex.git"
 
-_PAUDE_EXTENSION_REPO = "https://github.com/hhellbusch/paude-pi-extension.git"
-
 
 class PiAgent:
     """Pi coding agent implementation.
 
-    Pi is a minimal terminal coding harness (npm: @mariozechner/pi-coding-agent).
+    Pi is a minimal terminal coding harness (npm: @earendil-works/pi-coding-agent).
     Unlike Claude Code or Gemini CLI, pi has no permission system by design —
     the author's explicit guidance is "run in a container", which is exactly what
     paude provides. There is therefore no yolo flag.
@@ -30,9 +28,8 @@ class PiAgent:
       vertex    — Gemini and Anthropic/Claude models via Vertex AI.
                   Requires GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
                   Gemini: Pi's built-in google-vertex provider.
-                  Claude: basnijholt/pi-anthropic-vertex extension, installed into
-                  the image at build time, uses @anthropic-ai/vertex-sdk + ADC —
-                  same auth flow as Claude Code and OpenClaw on Vertex.
+                  Claude: hhellbusch/pi-anthropic-vertex extension, installed into
+                  the image at build time, uses @anthropic-ai/vertex-sdk + ADC.
       google    — Gemini via Google AI API (GEMINI_API_KEY)
       github    — GitHub Copilot via ~/.pi/agent/auth.json seeded from host.
                   Run `pi /login` once on the host to populate that file.
@@ -40,6 +37,7 @@ class PiAgent:
 
     def __init__(self, provider: str | None = None) -> None:
         creds = build_provider_credentials("pi", provider)
+
         # Disable startup version checks and install telemetry — these are
         # unnecessary in a container and slow cold starts.
         creds.extra_env_vars["PI_OFFLINE"] = "1"
@@ -75,7 +73,7 @@ class PiAgent:
             session_name="pi",
             # Runtime fallback only — requires Node.js already in the image.
             # Normal path: dockerfile_install_lines bakes Node.js + CLI into image.
-            install_script="npm install -g @mariozechner/pi-coding-agent",
+            install_script="npm install -g @earendil-works/pi-coding-agent",
             install_dir=".local/bin",
             env_vars=creds.extra_env_vars,
             passthrough_env_vars=creds.passthrough_env_vars,
@@ -103,7 +101,7 @@ class PiAgent:
             "    dnf install -y nodejs npm git ripgrep fd-find && dnf clean all",
             "",
             "# Install Pi coding agent",
-            "RUN npm install -g @mariozechner/pi-coding-agent",
+            "RUN npm install -g @earendil-works/pi-coding-agent",
             "",
             "# Ensure Node.js respects http_proxy/https_proxy env vars",
             "ENV NODE_USE_ENV_PROXY=1",
@@ -120,7 +118,7 @@ class PiAgent:
             lines += [
                 "",
                 "# Install pi-anthropic-vertex extension for Claude models via Vertex AI.",
-                "# Uses @anthropic-ai/vertex-sdk + ADC — same auth flow as Claude Code on Vertex.",
+                "# Uses @anthropic-ai/vertex-sdk + ADC for auth.",
                 f"# Source: {_VERTEX_EXTENSION_REPO}",
                 f"RUN mkdir -p {container_home}/.pi/agent/extensions && \\",
                 f"    git clone {_VERTEX_EXTENSION_REPO} \\",
@@ -142,9 +140,8 @@ class PiAgent:
         import base64
         import json as _json
 
-        builtin = [f"git:{_PAUDE_EXTENSION_REPO}"]
         user = [x for x in (pi_extensions or []) if isinstance(x, str) and x.strip()]
-        exts = builtin + [x for x in user if x not in builtin]
+        exts = list(dict.fromkeys(user))
         ext_block = ""
         if exts:
             b64 = base64.b64encode(_json.dumps(exts).encode()).decode()

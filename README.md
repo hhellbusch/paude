@@ -10,7 +10,7 @@ Run AI coding agents in secure containers. They make commits, you pull them back
 | [Cursor CLI](https://docs.cursor.com/cli) | `--agent cursor` | Supported |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `--agent gemini` | Supported |
 | [OpenClaw](https://github.com/openclaw/openclaw) | `--agent openclaw` | Supported |
-| [Pi](https://github.com/badlogic/pi-mono) | `--agent pi` | Supported |
+| [Pi](https://github.com/earendil-works/pi) | `--agent pi` | Supported |
 | [GitHub Copilot CLI](https://github.com/github/gh-copilot) | `--agent copilot` | Supported |
 
 > Agents are installed automatically inside the container — no local agent installation needed. You just need authentication credentials for your chosen provider.

@@ -1,8 +1,10 @@
 # Pi Agent — Setup and Usage Guide
 
-[Pi](https://github.com/badlogic/pi-mono) is a minimal terminal coding agent with no built-in permission system. The author's explicit guidance is "run it in a container" — which is exactly what paude provides. Pi is installed automatically inside the container; no local Pi installation is needed.
+[Pi](https://github.com/earendil-works/pi) is a minimal terminal coding agent with no built-in permission system. The author's explicit guidance is "run it in a container" — which is exactly what paude provides. Pi is installed automatically inside the container; no local Pi installation is needed.
 
 Pi supports multiple inference backends selectable via `--provider` at session creation time.
+
+Paude does not auto-install optional Pi workflow extensions. If you want additional prompt/context behavior, pass explicit extensions with repeatable `--pi-extension` flags.
 
 ---
 
@@ -21,7 +23,7 @@ Default provider when `--provider` is not specified: `anthropic`.
 
 ## Vertex AI Provider
 
-Pi on Vertex supports both Claude (via the [pi-anthropic-vertex](https://github.com/basnijholt/pi-anthropic-vertex) extension, installed at image build time) and Gemini (via Pi's built-in `google-vertex` provider). Auth flows through the same ADC proxy mechanism used by Claude Code and OpenClaw — no additional setup needed beyond standard Vertex credentials.
+Pi on Vertex supports both Claude (via the [pi-anthropic-vertex](https://github.com/hhellbusch/pi-anthropic-vertex) extension, installed at image build time) and Gemini (via Pi's built-in `google-vertex` provider). Authentication follows paude's standard Vertex model: ADC credentials are available in the container while network egress remains proxy-filtered.
 
 ### Prerequisites
 
@@ -105,7 +107,7 @@ Pi authenticates with GitHub Copilot via an OAuth token stored in `~/.pi/agent/a
 Install Pi on the host (one-time):
 
 ```bash
-npm install -g @mariozechner/pi-coding-agent
+npm install -g @earendil-works/pi-coding-agent
 ```
 
 Log in:

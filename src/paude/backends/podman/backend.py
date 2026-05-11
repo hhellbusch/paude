@@ -234,12 +234,29 @@ class PodmanBackend:
     def _inject_stub_credentials(self, cname: str) -> None:
         """Inject stub GCP ADC into a running container.
 
-        All real authentication is handled by the proxy sidecar. The agent
-        container only gets a stub ADC JSON to satisfy client library checks.
+        Used for non-Vertex sessions so client libraries that probe ADC files
+        still find a syntactically valid credential document.
         """
         from paude.backends.shared import STUB_ADC_JSON
 
         self._runner.inject_file(cname, STUB_ADC_JSON, GCP_ADC_TARGET, owner="paude:0")
+
+    def _inject_gcp_credentials(self, cname: str, agent: Agent) -> None:
+        """Inject GCP ADC into the agent container when Vertex auth needs it.
+
+        Upstream security posture allows in-container ADC for Vertex while
+        relying on egress filtering and container isolation as the primary guard.
+        """
+        adc_path = self._local_adc_path()
+        if agent.config.provider == "vertex" and adc_path is not None:
+            self._runner.inject_file(
+                cname,
+                adc_path.read_text(),
+                GCP_ADC_TARGET,
+                owner="paude:0",
+            )
+            return
+        self._inject_stub_credentials(cname)
 
     def create_session(self, config: SessionConfig) -> Session:
         """Create a new session (does not start it).
@@ -345,8 +362,8 @@ class PodmanBackend:
         )
         env["PAUDE_WORKSPACE"] = CONTAINER_WORKSPACE
 
-        # Create container (stopped) — no real credentials are passed.
-        # Agent gets stub ADC injected at start time.
+        # Create container (stopped). GCP ADC is injected at start time for
+        # Vertex sessions; all other sessions use a stub credential file.
         print(f"Creating container {cname}...", file=sys.stderr)
         try:
             dns = [proxy_ip] if proxy_ip else None
@@ -409,10 +426,9 @@ class PodmanBackend:
         )
 
     def _start_session_containers(self, name: str, cname: str) -> Agent:
-        """Start proxy and agent containers, inject stub credentials and config.
+        """Start proxy and agent containers, inject credentials and config.
 
         Shared startup sequence used by both interactive and headless paths.
-        No real credentials are injected into the agent container.
 
         Returns:
             The resolved agent.
@@ -423,7 +439,7 @@ class PodmanBackend:
         self._runner.start_container(cname)
         self._fix_volume_permissions(cname)
         self._proxy.distribute_ca_cert(name)
-        self._inject_stub_credentials(cname)
+        self._inject_gcp_credentials(cname, agent)
         self._sync_host_config(cname, agent.config.name)
         self._sync_sandbox_config(cname, name)
         return agent
