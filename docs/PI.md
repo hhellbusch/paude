@@ -152,6 +152,55 @@ git pull paude-my-pi-session main
 
 ---
 
+## Workspace context loading
+
+Pi automatically discovers and loads context from your project. Understanding the loading order prevents surprises — especially the `SYSTEM.md` gotcha that can turn Pi from a coding assistant into something else entirely.
+
+### File discovery order
+
+| File | Where Pi looks | Effect |
+|------|---------------|--------|
+| `AGENTS.md` / `CLAUDE.md` | Walks from `cwd` up to `/` | Appended as context alongside the system prompt — Pi can read these but they do not replace the coding assistant behavior |
+| `.pi/SYSTEM.md` | `<cwd>/.pi/SYSTEM.md`, then `~/.pi/agent/SYSTEM.md` | **Replaces Pi's built-in coding assistant prompt entirely** — use with caution |
+| `.pi/APPEND_SYSTEM.md` | `<cwd>/.pi/APPEND_SYSTEM.md`, then `~/.pi/agent/APPEND_SYSTEM.md` | Appended after the system prompt without replacing it |
+
+### The `SYSTEM.md` gotcha
+
+If your project contains a `.pi/SYSTEM.md`, Pi will use it as the complete system prompt — discarding the built-in coding assistant instructions. This is intentional (it lets you fully customize Pi's persona), but it is easy to accidentally create a file that removes the coding assistant behavior without realizing it.
+
+**Symptom:** Pi seems confused about its role, ignores coding conventions, or doesn't behave like a coding agent.
+
+**Fix:** Remove or rename `.pi/SYSTEM.md`. Use `.pi/APPEND_SYSTEM.md` instead if you only want to add workspace-specific context on top of Pi's default behavior.
+
+### Recommended pattern for workspace context
+
+Use `AGENTS.md` for project rules (coding conventions, where files go, commit style). Pi loads it as context without affecting its core coding assistant behavior:
+
+```
+your-project/
+  AGENTS.md          # project rules — loaded automatically as context
+  .pi/
+    APPEND_SYSTEM.md # optional: workspace-specific additions to system prompt
+```
+
+Avoid `.pi/SYSTEM.md` unless you intentionally want a custom persona that replaces Pi's default coding assistant.
+
+### CLI overrides
+
+```bash
+# Disable AGENTS.md / CLAUDE.md discovery entirely
+pi --no-context-files
+
+# Replace system prompt from a file or inline text
+pi --system-prompt path/to/prompt.md
+
+# Append to the system prompt (can be repeated)
+pi --append-system-prompt "Always use TypeScript strict mode"
+pi --append-system-prompt path/to/extra-rules.md
+```
+
+---
+
 ## Defaults
 
 To avoid typing `--agent pi --provider vertex` on every session:
