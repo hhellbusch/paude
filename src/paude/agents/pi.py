@@ -153,8 +153,12 @@ _PAUDE_PI_EXT_B64='{b64}'
 if command -v jq >/dev/null 2>&1 && command -v pi >/dev/null 2>&1; then
   echo "$_PAUDE_PI_EXT_B64" | base64 -d | jq -r '.[]' | while IFS= read -r _pi_spec || [ -n "$_pi_spec" ]; do
     [ -z "$_pi_spec" ] && continue
-    echo "paude: installing Pi extension: $_pi_spec" >&2
-    PI_OFFLINE= pi install "$_pi_spec" || echo "paude: warning: pi install failed for: $_pi_spec" >&2
+    echo "paude: installing Pi extension: $_pi_spec"
+    if PI_OFFLINE= pi install "$_pi_spec" 2>&1; then
+      echo "paude: installed: $_pi_spec"
+    else
+      echo "paude: WARNING: pi install failed for: $_pi_spec (exit $?)" >&2
+    fi
   done
 fi
 """

@@ -84,14 +84,18 @@ if openai_key and openai_base:
 
 gh_token = (os.environ.get("GH_TOKEN") or "").strip()
 if gh_token and gh_token != "proxy-managed":
+    # Inject Bearer token for GitHub REST API only (api.github.com).
+    # Do NOT include github.com here — git smart HTTP uses Basic auth, not Bearer.
+    # Injecting Bearer into git clone/fetch/push requests causes GitHub to reject
+    # them (401), breaking `pi install git:github.com/...` and other git operations.
     cfg["credentials"].append(
         {
             "env_var": "GH_TOKEN",
             "injector": "bearer",
-            "domains": ["github.com", "api.github.com"],
+            "domains": ["api.github.com"],
         }
     )
-    print("GitHub credential injection: ENABLED (github.com)", file=sys.stderr)
+    print("GitHub credential injection: ENABLED (api.github.com REST API only)", file=sys.stderr)
 
 vertex_mode = (os.environ.get("PAUDE_VERTEX_AUTH_MODE") or "").strip().lower()
 if vertex_mode == "proxy":
