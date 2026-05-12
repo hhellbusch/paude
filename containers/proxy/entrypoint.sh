@@ -82,6 +82,17 @@ if openai_key and openai_base:
             file=sys.stderr,
         )
 
+gh_token = (os.environ.get("GH_TOKEN") or "").strip()
+if gh_token and gh_token != "proxy-managed":
+    cfg["credentials"].append(
+        {
+            "env_var": "GH_TOKEN",
+            "injector": "bearer",
+            "domains": ["github.com", "api.github.com"],
+        }
+    )
+    print("GitHub credential injection: ENABLED (github.com)", file=sys.stderr)
+
 vertex_mode = (os.environ.get("PAUDE_VERTEX_AUTH_MODE") or "").strip().lower()
 if vertex_mode == "proxy":
     token = (os.environ.get("PAUDE_VERTEX_BEARER_TOKEN") or "").strip()
