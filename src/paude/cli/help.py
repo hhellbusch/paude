@@ -181,6 +181,7 @@ _SECTIONS: tuple[HelpSection, ...] = (
             ("", ""),
             ("Pi-only flags:", ""),
             ("--pi-extension git:https://...", "Install Pi extension (repeatable)"),
+            ("--no-pi-extensions", "Skip all pi extensions (opt-out for a single session)"),
             ("--upstream-ca /path/to/ca.pem", "Inject CA cert into proxy trust store"),
         ),
     ),

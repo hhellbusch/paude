@@ -190,6 +190,16 @@ def session_create(
             ),
         ),
     ] = None,
+    no_pi_extensions: Annotated[
+        bool,
+        typer.Option(
+            "--no-pi-extensions",
+            help=(
+                "Skip loading pi extensions entirely, even if configured in user defaults. "
+                "Use this to temporarily disable all pi-extensions for a session."
+            ),
+        ),
+    ] = False,
     upstream_ca: Annotated[
         str | None,
         typer.Option(
@@ -392,7 +402,10 @@ def session_create(
         otel_ports.append(llm_port)
 
     # Resolve pi_extensions — CLI flags override, user defaults as fallback
-    r_pi_extensions = pi_extension or user_defaults.pi_extensions or []
+    # --no-pi-extensions takes priority over everything (explicit opt-out)
+    r_pi_extensions = []
+    if not no_pi_extensions:
+        r_pi_extensions = pi_extension or user_defaults.pi_extensions or []
 
     if r_backend in (BackendType.podman, BackendType.docker):
         from paude.cli.create_podman import create_podman_session
