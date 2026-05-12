@@ -174,6 +174,31 @@ attach_to_session() {
     exec tmux -u attach -t "$AGENT_SESSION_NAME"
 }
 
+# Session workspace setup
+# For persistent sessions, workspace is at /pvc/workspace (mounted PVC) or
+# /workspace for older Podman setups.
+WORKSPACE="${PAUDE_WORKSPACE:-/workspace}"
+
+# Create workspace directory if it doesn't exist
+mkdir -p "$WORKSPACE" 2>/dev/null || true
+chmod g+rwX "$WORKSPACE" 2>/dev/null || true
+
+# Fix workspace config directory if it exists (synced from host)
+if [[ -d "$WORKSPACE/$AGENT_CONFIG_DIR" ]]; then
+    chmod -R g+rwX "$WORKSPACE/$AGENT_CONFIG_DIR" 2>/dev/null || true
+fi
+
+# Initialize git submodules if the workspace is a git repo.
+# Runs on every session start (new and reconnect) — idempotent and safe.
+# This ensures the agent has a fully populated workspace even when the volume
+# was seeded from a shallow clone or cloned without --recurse-submodules.
+# NOTE: must run BEFORE the reconnect early-exit so it fires on reconnects too.
+if [[ -f "$WORKSPACE/.git" ]] || [[ -d "$WORKSPACE/.git" ]]; then
+    echo "Initializing git submodules in $WORKSPACE..."
+    git -C "$WORKSPACE" submodule update --init --recursive 2>&1 \
+        || echo "WARN: git submodule update failed (non-fatal)" >&2
+fi
+
 # On reconnect (tmux session already exists), skip sandbox config —
 # reapplying would overwrite in-container state.
 if tmux -u has-session -t "$AGENT_SESSION_NAME" 2>/dev/null; then
@@ -193,29 +218,6 @@ if [[ "${PAUDE_SUPPRESS_PROMPTS:-}" == "1" ]]; then
     fi
 fi
 
-# Session workspace setup
-# For persistent sessions, workspace is at /workspace (mounted volume)
-WORKSPACE="${PAUDE_WORKSPACE:-/workspace}"
-
-# Create workspace directory if it doesn't exist
-mkdir -p "$WORKSPACE" 2>/dev/null || true
-chmod g+rwX "$WORKSPACE" 2>/dev/null || true
-
-# Fix workspace config directory if it exists (synced from host)
-if [[ -d "$WORKSPACE/$AGENT_CONFIG_DIR" ]]; then
-    chmod -R g+rwX "$WORKSPACE/$AGENT_CONFIG_DIR" 2>/dev/null || true
-fi
-
-# Initialize git submodules if the workspace is a git repo.
-# Runs once per new session start (reconnects exit early above).
-# This ensures the agent has a fully populated workspace even when
-# the volume was seeded from a shallow clone or a repo that was
-# cloned without --recurse-submodules.
-if [[ -f "$WORKSPACE/.git" ]] || [[ -d "$WORKSPACE/.git" ]]; then
-    echo "Initializing git submodules in $WORKSPACE..."
-    git -C "$WORKSPACE" submodule update --init --recursive 2>&1 \
-        || echo "WARN: git submodule update failed (non-fatal)" >&2
-fi
 
 if tmux -u has-session -t "$AGENT_SESSION_NAME" 2>/dev/null; then
     exit_if_headless "already running"
@@ -244,7 +246,7 @@ else
                 # AGENT_ARGS starts with "-p "
                 BASE_FLAGS=""
             fi
-            # Extract everything after the first -p  as prompt content
+            # Extract everything after the first -p as prompt content
             PROMPT_CONTENT="${AGENT_ARGS#*-p }"
             # Write prompt content to file — printf %s never interprets content
             PROMPT_FILE="$WORKSPACE/.paude-prompt.txt"
