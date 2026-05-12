@@ -25,7 +25,8 @@ PLATFORMS = linux/amd64,linux/arm64
 
 help:
 	@echo "Paude build targets:"
-	@echo "  make build          - Build images locally for current arch"
+	@echo "  make build          - Build images locally for current arch (with cache)"
+	@echo "  make rebuild        - Build images locally, no cache (use after script changes)"
 	@echo "  make run            - Run paude in dev mode (builds locally)"
 	@echo "  make test           - Run all tests (unit + integration)"
 	@echo "  make publish        - Build multi-arch images and push to registry"
@@ -60,6 +61,12 @@ NATIVE_ARCH := $(shell uname -m | sed 's/x86_64/amd64/')
 build:
 	podman build --platform linux/$(NATIVE_ARCH) -t $(IMAGE_NAME):latest -t $(IMAGE_NAME):latest-$(NATIVE_ARCH) ./containers/paude
 	podman build --platform linux/$(NATIVE_ARCH) -t $(PROXY_IMAGE_NAME):latest -t $(PROXY_IMAGE_NAME):latest-$(NATIVE_ARCH) ./containers/proxy
+
+# Force a clean rebuild (no cache) — use after changing entrypoint scripts or other files
+# that podman's layer cache may not detect as changed.
+rebuild:
+	podman build --no-cache --platform linux/$(NATIVE_ARCH) -t $(IMAGE_NAME):latest -t $(IMAGE_NAME):latest-$(NATIVE_ARCH) ./containers/paude
+	podman build --no-cache --platform linux/$(NATIVE_ARCH) -t $(PROXY_IMAGE_NAME):latest -t $(PROXY_IMAGE_NAME):latest-$(NATIVE_ARCH) ./containers/proxy
 
 # Run paude in dev mode (builds images locally)
 run:
