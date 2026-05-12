@@ -97,6 +97,19 @@ class ContainerEngine:
         """Check if a container image exists locally."""
         return self._exists("image", tag)
 
+    def get_image_id(self, tag: str) -> str | None:
+        """Return the image ID for a tag, or None if the image doesn't exist.
+
+        Uses the full image ID so that a rebuilt image (same tag, new content)
+        produces a different hash and forces a runtime image rebuild.
+        """
+        result = self.run(
+            "inspect", "--format", "{{.Id}}", tag, check=False
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
+
     def network_exists(self, name: str) -> bool:
         """Check if a container network exists."""
         return self._exists("network", name)

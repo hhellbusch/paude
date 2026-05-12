@@ -183,9 +183,13 @@ class ImageManager:
         """Ensure the runtime image (with agent installed) is available."""
         import sys
 
+        # Use the actual image ID rather than the tag string so that rebuilding
+        # the base image (same tag, new content) produces a different hash and
+        # forces the runtime image to be rebuilt as well.
+        base_image_id = self._engine.get_image_id(base_image) or base_image
         layer_content = generate_claude_layer_dockerfile(agent=self.agent)
         layer_hash = compute_content_hash(
-            base_image.encode(),
+            base_image_id.encode(),
             self.version.encode(),
             layer_content.encode(),
         )
@@ -243,10 +247,15 @@ class ImageManager:
         effective_base = config.base_image
         if not effective_base and self.agent and self.agent.config.default_base_image:
             effective_base = self.agent.config.default_base_image
+        # Resolve to actual image ID so rebuilding the base (same tag, new content)
+        # invalidates the workspace image cache.
+        effective_base_id = (
+            self._engine.get_image_id(effective_base) if effective_base else None
+        ) or effective_base
         config_hash = compute_config_hash(
             config.config_file,
             config.dockerfile,
-            effective_base,
+            effective_base_id,
             entrypoint,
             self.version,
             agent_name=agent_name,
