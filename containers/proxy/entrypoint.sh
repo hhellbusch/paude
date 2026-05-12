@@ -85,10 +85,6 @@ if openai_key and openai_base:
 gh_token = (os.environ.get("GH_TOKEN") or "").strip()
 if gh_token and gh_token != "proxy-managed":
     # Bearer for GitHub REST API (gh CLI, GitHub API calls).
-    # NOTE: Do NOT add github.com here with bearer — git smart HTTP requires Basic
-    # auth and rejects Bearer, breaking git clone/fetch/push. Once the proxy binary
-    # supports the "basic" injector type, add a separate entry for github.com using
-    # injector="basic" with params={"username": "x-access-token"}.
     cfg["credentials"].append(
         {
             "env_var": "GH_TOKEN",
@@ -96,7 +92,18 @@ if gh_token and gh_token != "proxy-managed":
             "domains": ["api.github.com"],
         }
     )
-    print("GitHub credential injection: ENABLED (api.github.com REST API only)", file=sys.stderr)
+    # Basic auth for github.com git operations (clone/fetch/push).
+    # Git smart HTTP requires Basic auth — Bearer is rejected by GitHub's git server.
+    # username "x-access-token" is the standard GitHub PAT credential username.
+    cfg["credentials"].append(
+        {
+            "env_var": "GH_TOKEN",
+            "injector": "basic",
+            "params": {"username": "x-access-token"},
+            "domains": ["github.com"],
+        }
+    )
+    print("GitHub credential injection: ENABLED (api.github.com Bearer + github.com Basic git)", file=sys.stderr)
 
 vertex_mode = (os.environ.get("PAUDE_VERTEX_AUTH_MODE") or "").strip().lower()
 if vertex_mode == "proxy":

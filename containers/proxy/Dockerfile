@@ -1,9 +1,10 @@
 # Build stage — compile paude-proxy from source
 FROM golang:1.23 AS builder
 WORKDIR /app
-ARG PAUDE_PROXY_VERSION=e990bd7c854ee6b34d7db9ecb5c3646cd361f9bd
+ARG PAUDE_PROXY_REPO=https://github.com/hhellbusch/paude-proxy.git
+ARG PAUDE_PROXY_VERSION=1f35bde8547771c54d8fd0175b5da14077f64635
 RUN git init . && \
-    git fetch --depth 1 https://github.com/bbrowning/paude-proxy.git ${PAUDE_PROXY_VERSION} && \
+    git fetch --depth 1 ${PAUDE_PROXY_REPO} ${PAUDE_PROXY_VERSION} && \
     git checkout FETCH_HEAD && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paude-proxy ./cmd/paude-proxy/
 
