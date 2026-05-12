@@ -2,7 +2,7 @@
 FROM golang:1.23 AS builder
 WORKDIR /app
 ARG PAUDE_PROXY_REPO=https://github.com/hhellbusch/paude-proxy.git
-ARG PAUDE_PROXY_VERSION=1f35bde8547771c54d8fd0175b5da14077f64635
+ARG PAUDE_PROXY_VERSION=bdac369da9f0ccb286bfd4db47a2796ee9c32c53
 RUN git init . && \
     git fetch --depth 1 ${PAUDE_PROXY_REPO} ${PAUDE_PROXY_VERSION} && \
     git checkout FETCH_HEAD && \
