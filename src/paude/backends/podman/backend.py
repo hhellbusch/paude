@@ -425,6 +425,51 @@ class PodmanBackend:
             check=False,
         )
 
+    def _install_pi_extensions_at_create(self, cname: str, session_name: str) -> None:
+        """Install Pi extensions at create time with visible output.
+
+        Runs pi install for each configured extension before the agent starts,
+        so failures are visible during 'paude create' rather than causing a
+        silent [exited] on first 'paude connect'.
+
+        Only runs for Pi sessions; no-op for all other agents.
+        """
+        from paude.backends.shared import parse_pi_extensions_json
+        from paude.constants import PAUDE_PI_EXTENSIONS_ENV
+
+        labels = self._get_session_labels(session_name)
+        if labels.get(PAUDE_LABEL_AGENT) != "pi":
+            return
+
+        pi_exts = parse_pi_extensions_json(
+            self._runner.get_container_env(cname, PAUDE_PI_EXTENSIONS_ENV)
+        )
+        if not pi_exts:
+            return
+
+        print("Installing Pi extensions...", file=sys.stderr)
+        for spec in pi_exts:
+            print(f"  Installing {spec}...", file=sys.stderr)
+            result = self._runner.exec_in_container(
+                cname,
+                [
+                    "bash", "-c",
+                    f"PI_OFFLINE= pi install {spec!r} 2>&1",
+                ],
+                check=False,
+            )
+            if result.stdout:
+                for line in result.stdout.rstrip().splitlines():
+                    print(f"    {line}", file=sys.stderr)
+            if result.returncode != 0:
+                print(
+                    f"  WARNING: pi install failed for {spec!r} "
+                    f"(exit {result.returncode})",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"  Installed {spec}", file=sys.stderr)
+
     def _start_session_containers(self, name: str, cname: str) -> Agent:
         """Start proxy and agent containers, inject credentials and config.
 
@@ -442,6 +487,7 @@ class PodmanBackend:
         self._inject_gcp_credentials(cname, agent)
         self._sync_host_config(cname, agent.config.name)
         self._sync_sandbox_config(cname, name)
+        self._install_pi_extensions_at_create(cname, name)
         return agent
 
     def start_session_no_attach(self, name: str) -> None:

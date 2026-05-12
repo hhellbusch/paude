@@ -146,13 +146,18 @@ class PiAgent:
         if exts:
             b64 = base64.b64encode(_json.dumps(exts).encode()).decode()
             ext_block = f"""
-# Pi extensions from paude create (runs before first agent start; needs network)
-# Unset PI_OFFLINE so pi install can reach the network — the flag is set in the
-# Dockerfile for startup performance but must not block extension installation.
+# Pi extensions — fallback install in case create-time install was skipped or
+# failed. Unset PI_OFFLINE so pi install can reach the network.
 _PAUDE_PI_EXT_B64='{b64}'
 if command -v jq >/dev/null 2>&1 && command -v pi >/dev/null 2>&1; then
   echo "$_PAUDE_PI_EXT_B64" | base64 -d | jq -r '.[]' | while IFS= read -r _pi_spec || [ -n "$_pi_spec" ]; do
     [ -z "$_pi_spec" ] && continue
+    # Skip if already installed (create-time install succeeded)
+    _ext_name=$(echo "$_pi_spec" | sed 's|.*/||')
+    if [ -d "$HOME/.pi/agent/extensions/$_ext_name" ]; then
+      echo "paude: extension already installed: $_pi_spec"
+      continue
+    fi
     echo "paude: installing Pi extension: $_pi_spec"
     if PI_OFFLINE= pi install "$_pi_spec" 2>&1; then
       echo "paude: installed: $_pi_spec"
