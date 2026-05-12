@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from paude.agents.base import AgentConfig
 from paude.agents.claude import ClaudeAgent
 from paude.backends.base import SessionConfig
 from paude.backends.shared import (
     PROXY_GCP_ADC_ENV,
+    PROXY_VERTEX_BEARER_ENV,
+    PROXY_VERTEX_PROJECT_ENV,
+    PROXY_VERTEX_REGION_ENV,
+    VERTEX_AUTH_MODE_DIRECT,
+    VERTEX_AUTH_MODE_ENV,
+    VERTEX_AUTH_MODE_PROXY,
     build_session_env,
     gather_proxy_credentials,
     network_name,
@@ -49,6 +57,58 @@ class TestBuildSessionEnv:
         env, _args = build_session_env(config, agent, proxy_name="proxy-test")
 
         assert env["PAUDE_SUPPRESS_PROMPTS"] == "1"
+
+    def test_pi_vertex_sets_auth_mode_marker(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Pi+Vertex sessions expose resolved PAUDE_VERTEX_AUTH_MODE."""
+        monkeypatch.delenv(VERTEX_AUTH_MODE_ENV, raising=False)
+        config = SessionConfig(
+            name="test",
+            workspace=Path("/home/user/project"),
+            image="test-image",
+            provider="vertex",
+        )
+        agent = SimpleNamespace(
+            config=AgentConfig(
+                name="pi",
+                display_name="Pi",
+                process_name="pi",
+                session_name="pi",
+                install_script="echo install",
+                provider="vertex",
+            ),
+            launch_command=lambda _args: "pi",
+        )
+
+        env, _args = build_session_env(config, agent, proxy_name="proxy-test")
+
+        assert env[VERTEX_AUTH_MODE_ENV] == VERTEX_AUTH_MODE_DIRECT
+
+    def test_pi_vertex_mode_honors_explicit_proxy_override(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Pi+Vertex honors explicit PAUDE_VERTEX_AUTH_MODE=proxy."""
+        monkeypatch.setenv(VERTEX_AUTH_MODE_ENV, VERTEX_AUTH_MODE_PROXY)
+        config = SessionConfig(
+            name="test",
+            workspace=Path("/home/user/project"),
+            image="test-image",
+            provider="vertex",
+        )
+        agent = SimpleNamespace(
+            config=AgentConfig(
+                name="pi",
+                display_name="Pi",
+                process_name="pi",
+                session_name="pi",
+                install_script="echo install",
+                provider="vertex",
+            ),
+            launch_command=lambda _args: "pi",
+        )
+
+        env, _args = build_session_env(config, agent, proxy_name="proxy-test")
+
+        assert env[VERTEX_AUTH_MODE_ENV] == VERTEX_AUTH_MODE_PROXY
 
 
 class TestBuildSessionEnvProxyCredentials:
@@ -150,6 +210,37 @@ class TestGatherProxyCredentials:
         creds = gather_proxy_credentials(agent.config, gcp_adc_path=None)
 
         assert PROXY_GCP_ADC_ENV not in creds
+
+    def test_proxy_vertex_mode_forwards_vertex_proxy_context(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Proxy mode adds Vertex relay context and host-minted bearer token."""
+        adc_file = tmp_path / "adc.json"
+        adc_file.write_text(
+            '{"type":"authorized_user","client_id":"cid","client_secret":"csec","refresh_token":"rt"}'
+        )
+        monkeypatch.setenv(VERTEX_AUTH_MODE_ENV, VERTEX_AUTH_MODE_PROXY)
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj-123")
+        monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-east5")
+        monkeypatch.setattr(
+            "paude.backends.shared._mint_vertex_bearer_token",
+            lambda _adc: "ya29.test-token",
+        )
+
+        agent_config = AgentConfig(
+            name="pi",
+            display_name="Pi",
+            process_name="pi",
+            session_name="pi",
+            install_script="echo install",
+            provider="vertex",
+        )
+        creds = gather_proxy_credentials(agent_config, gcp_adc_path=adc_file)
+
+        assert creds[VERTEX_AUTH_MODE_ENV] == VERTEX_AUTH_MODE_PROXY
+        assert creds[PROXY_VERTEX_PROJECT_ENV] == "proj-123"
+        assert creds[PROXY_VERTEX_REGION_ENV] == "us-east5"
+        assert creds[PROXY_VERTEX_BEARER_ENV] == "ya29.test-token"
 
 
 class TestNamingHelpers:

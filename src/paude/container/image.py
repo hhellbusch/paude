@@ -25,6 +25,21 @@ from paude.platform import is_macos
 # Re-export for backward compatibility
 __all__ = ["BuildContext", "ImageManager", "prepare_build_context"]
 
+# Standard proxy env vars forwarded to container builds as --build-arg so
+# package managers (dnf, apt, etc.) can reach mirrors through a corporate proxy.
+# Both upper- and lower-case variants are forwarded; Docker/Podman treat these
+# as predefined build args that flow into RUN instructions automatically.
+_PROXY_ENV_VARS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "FTP_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "ftp_proxy",
+)
+
 
 def _detect_native_platform() -> str:
     """Detect the native platform for container builds."""
@@ -94,9 +109,9 @@ class ImageManager:
 
         if self.platform:
             arch = self.platform.split("/")[-1]
-            tag = f"paude-runtime:{layer_hash[:12]}-{arch}"
+            tag = f"localhost/paude-runtime:{layer_hash[:12]}-{arch}"
         else:
-            tag = f"paude-runtime:{layer_hash[:12]}"
+            tag = f"localhost/paude-runtime:{layer_hash[:12]}"
 
         if not force_rebuild and self._engine.image_exists(tag):
             print(f"Using cached runtime image: {tag}", file=sys.stderr)
@@ -137,9 +152,9 @@ class ImageManager:
         if self.dev_mode and self.script_dir:
             if self.platform:
                 arch = self.platform.split("/")[-1]
-                tag = f"paude-base-centos10:latest-{arch}"
+                tag = f"localhost/paude-base-centos10:latest-{arch}"
             else:
-                tag = "paude-base-centos10:latest"
+                tag = "localhost/paude-base-centos10:latest"
             if not self._engine.image_exists(tag):
                 print(f"Building {tag} image...", file=sys.stderr)
                 dockerfile = self.script_dir / "containers" / "paude" / "Dockerfile"
@@ -177,9 +192,9 @@ class ImageManager:
 
         if self.platform:
             arch = self.platform.split("/")[-1]
-            runtime_tag = f"paude-runtime:{layer_hash[:12]}-{arch}"
+            runtime_tag = f"localhost/paude-runtime:{layer_hash[:12]}-{arch}"
         else:
-            runtime_tag = f"paude-runtime:{layer_hash[:12]}"
+            runtime_tag = f"localhost/paude-runtime:{layer_hash[:12]}"
 
         if self._engine.image_exists(runtime_tag):
             print(f"Using cached runtime image: {runtime_tag}", file=sys.stderr)
@@ -239,9 +254,9 @@ class ImageManager:
 
         if self.platform:
             arch = self.platform.split("/")[-1]
-            tag = f"paude-workspace:{config_hash}-{arch}"
+            tag = f"localhost/paude-workspace:{config_hash}-{arch}"
         else:
-            tag = f"paude-workspace:{config_hash}"
+            tag = f"localhost/paude-workspace:{config_hash}"
 
         if not force_rebuild and self._engine.image_exists(tag):
             print(f"Using cached workspace image: {tag}", file=sys.stderr)
@@ -277,7 +292,10 @@ class ImageManager:
         if config.dockerfile:
             if not config.dockerfile.exists():
                 raise FileNotFoundError(f"Dockerfile not found: {config.dockerfile}")
-            user_image = f"paude-user-base:{config_hash}"
+            # Use an explicit local registry prefix so Podman does not treat this
+            # as an unqualified short name and prompt for remote registry selection.
+            # This keeps custom-image builds non-interactive on fresh machines.
+            user_image = f"localhost/paude-user-base:{config_hash}"
             build_context = config.build_context or config.dockerfile.parent
             print(f"  → Building from: {config.dockerfile}", file=sys.stderr)
             user_build_args = dict(config.build_args)
@@ -309,9 +327,9 @@ class ImageManager:
         if self.dev_mode and self.script_dir:
             if self.platform:
                 arch = self.platform.split("/")[-1]
-                tag = f"paude-proxy-centos10:latest-{arch}"
+                tag = f"localhost/paude-proxy-centos10:latest-{arch}"
             else:
-                tag = "paude-proxy-centos10:latest"
+                tag = "localhost/paude-proxy-centos10:latest"
             if force_rebuild or not self._engine.image_exists(tag):
                 print(f"Building {tag} image...", file=sys.stderr)
                 dockerfile = self.script_dir / "containers" / "proxy" / "Dockerfile"
@@ -336,6 +354,42 @@ class ImageManager:
                     raise
             return tag
 
+    def _merge_proxy_build_args(
+        self, build_args: dict[str, str] | None
+    ) -> dict[str, str]:
+        """Merge host proxy and CA certificate environment variables into build args.
+
+        Forwards HTTP_PROXY, HTTPS_PROXY, NO_PROXY (and lowercase variants)
+        from the host environment so package managers inside the build
+        (dnf, apt, etc.) can reach mirrors through a corporate proxy.
+
+        If PAUDE_BUILD_CA_BUNDLE points to a PEM file, its contents are
+        base64-encoded and forwarded as CORPORATE_CA_CERT_B64 so the
+        Dockerfile can install it into the container trust store before any
+        network operations (required for MITM SSL-inspecting proxies).
+
+        Explicit build_args values always take precedence over env vars.
+        """
+        import base64
+
+        merged: dict[str, str] = {}
+        for var in _PROXY_ENV_VARS:
+            value = os.environ.get(var)
+            if value:
+                merged[var] = value
+
+        ca_bundle = os.environ.get("PAUDE_BUILD_CA_BUNDLE")
+        if ca_bundle:
+            ca_path = Path(ca_bundle)
+            if ca_path.is_file():
+                merged["CORPORATE_CA_CERT_B64"] = base64.b64encode(
+                    ca_path.read_bytes()
+                ).decode()
+
+        if build_args:
+            merged.update(build_args)
+        return merged
+
     def build_image(
         self,
         dockerfile: Path,
@@ -356,9 +410,9 @@ class ImageManager:
 
         if self.platform:
             cmd.extend(["--platform", self.platform])
-        if build_args:
-            for key, value in build_args.items():
-                cmd.extend(["--build-arg", f"{key}={value}"])
+        effective_build_args = self._merge_proxy_build_args(build_args)
+        for key, value in effective_build_args.items():
+            cmd.extend(["--build-arg", f"{key}={value}"])
         cmd.append(str(context))
         self._engine.run(*cmd, capture=False)
 
@@ -431,9 +485,9 @@ class ImageManager:
             cmd = ["build", "-f", remote_dockerfile, "-t", tag]
             if self.platform:
                 cmd.extend(["--platform", self.platform])
-            if build_args:
-                for key, value in build_args.items():
-                    cmd.extend(["--build-arg", f"{key}={value}"])
+            effective_build_args = self._merge_proxy_build_args(build_args)
+            for key, value in effective_build_args.items():
+                cmd.extend(["--build-arg", f"{key}={value}"])
             cmd.append(remote_dir)
             self._engine.run(*cmd, capture=False)
         finally:

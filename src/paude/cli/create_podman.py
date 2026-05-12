@@ -14,6 +14,7 @@ from paude.cli.helpers import (
     _detect_dev_script_dir,
     _finalize_session_create,
     _run_post_create_command,
+    openai_api_hostname_from_environ,
 )
 from paude.config.models import PaudeConfig
 
@@ -44,6 +45,8 @@ def create_podman_session(
     gpu: str | None = None,
     otel_ports: list[int] | None = None,
     otel_endpoint: str | None = None,
+    pi_extensions: list[str] | None = None,
+    upstream_ca_path: str | None = None,
 ) -> None:
     """Local container session creation logic (Podman or Docker)."""
     from paude.container import ImageManager
@@ -95,6 +98,39 @@ def create_podman_session(
         typer.echo(f"Error ensuring proxy image: {e}", err=True)
         raise typer.Exit(1) from None
 
+    # When OPENAI_BASE_URL uses a local hostname (localhost, .local, or a name
+    # that only resolves to a private/loopback IP), add --add-host so the proxy
+    # container can route to the host machine via Podman's host-gateway.
+    # Public hostnames that resolve via normal DNS are NOT added here — doing so
+    # would inject a host-gateway mapping into the proxy's /etc/hosts that
+    # overrides correct DNS resolution and routes traffic to the wrong IP.
+    import re
+    import socket
+
+    def _is_local_host(hostname: str) -> bool:
+        """Return True only if hostname is clearly local/host-bound."""
+        if hostname in ("localhost", "127.0.0.1", "::1"):
+            return True
+        if hostname.endswith((".local", ".internal", ".lan", ".home")):
+            return True
+        # Resolve and check if ALL addresses are private/loopback
+        try:
+            results = socket.getaddrinfo(hostname, None)
+            addrs = [r[4][0] for r in results]
+        except OSError:
+            # Unresolvable on host — assume local (new service not yet in DNS)
+            return True
+        _PRIVATE = re.compile(
+            r"^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|::1$|fe80:)"
+        )
+        return all(_PRIVATE.match(a) for a in addrs)
+
+    proxy_add_hosts: list[str] = []
+    openai_host = openai_api_hostname_from_environ()
+    if openai_host and not re.match(r"^\d+\.\d+\.\d+\.\d+$", openai_host):
+        if _is_local_host(openai_host):
+            proxy_add_hosts.append(f"{openai_host}:host-gateway")
+
     # Create session config
     session_config = SessionConfig(
         name=name,
@@ -113,6 +149,9 @@ def create_podman_session(
         ports=agent_instance.config.exposed_ports,
         otel_ports=otel_ports or [],
         otel_endpoint=otel_endpoint,
+        pi_extensions=pi_extensions or [],
+        upstream_ca_path=upstream_ca_path,
+        proxy_add_hosts=proxy_add_hosts,
     )
 
     try:

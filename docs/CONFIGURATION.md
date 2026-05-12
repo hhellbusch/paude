@@ -76,6 +76,44 @@ Then edit it to set the values you want. Any field set to `null` or omitted uses
 }
 ```
 
+**Pi on Vertex AI (Podman, local dev):**
+
+```json
+{
+  "defaults": {
+    "backend": "podman",
+    "agent": "pi",
+    "provider": "vertex",
+    "git": true
+  }
+}
+```
+
+With this, `paude create --yolo my-session` runs Pi against Vertex AI using Claude Sonnet by default and **pushes the workspace on create** (`git` defaults to `false` if omitted). Switch models at create time with `--agent-args "--model google-vertex/gemini-2.5-pro"` or inside the session with Pi's `/model` command.
+
+**Pi on Vertex with research domains:**
+
+```json
+{
+  "defaults": {
+    "backend": "podman",
+    "agent": "pi",
+    "provider": "vertex",
+    "allowed-domains": ["default", "youtube", "research"]
+  }
+}
+```
+
+**Docker backend (e.g. Ubuntu hosts):**
+
+```json
+{
+  "defaults": {
+    "backend": "docker"
+  }
+}
+```
+
 ### Project Hints
 
 Projects can declare defaults in their `paude.json` or `devcontainer.json` so that anyone cloning the repo gets the right settings automatically.

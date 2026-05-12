@@ -43,7 +43,7 @@ def main(
         ),
     ] = False,
 ) -> None:
-    """Run Claude Code in an isolated container."""
+    """Run AI coding agents in isolated containers."""
     # If a subcommand is invoked, let it handle things
     if ctx.invoked_subcommand is not None:
         return

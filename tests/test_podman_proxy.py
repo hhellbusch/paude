@@ -917,7 +917,7 @@ class TestSourceIpFiltering:
         with patch.object(
             manager,
             "get_config_from_labels",
-            return_value=("proxy:latest", [".googleapis.com"], []),
+            return_value=("proxy:latest", [".googleapis.com"], [], None, None),
         ):
             manager.start_if_needed(
                 session_name="test-session",

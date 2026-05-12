@@ -54,6 +54,27 @@ AGENT_PROVIDERS: dict[str, dict[str, AgentProviderConfig]] = {
     "gemini": {
         "google": AgentProviderConfig(),
     },
+    "copilot": {
+        "github": AgentProviderConfig(),
+    },
+    "pi": {
+        # Direct Anthropic API — requires ANTHROPIC_API_KEY.
+        "anthropic": AgentProviderConfig(),
+        # Vertex AI — Gemini via Pi's built-in google-vertex provider, and
+        # Claude via the basnijholt/pi-anthropic-vertex extension (installed
+        # at image build time).  Both use GOOGLE_CLOUD_PROJECT + ADC
+        # (CLOUDSDK_AUTH_*); the extension uses @anthropic-ai/vertex-sdk
+        # with the same ADC auth flow as Claude Code and OpenClaw on Vertex.
+        "vertex": AgentProviderConfig(),
+        # Gemini via Google AI API — requires GEMINI_API_KEY.
+        "google": AgentProviderConfig(
+            extra_secret_env_vars=["GEMINI_API_KEY"],
+        ),
+        # GitHub Copilot — auth via ~/.pi/agent/auth.json seeded from host.
+        # Run `pi /login` once on the host to populate the auth file, then
+        # PiAgent will mount it automatically.
+        "github": AgentProviderConfig(),
+    },
 }
 
 # Default provider for each agent (used when --provider is not specified).
@@ -63,6 +84,8 @@ DEFAULT_PROVIDER: dict[str, str] = {
     "openclaw": "vertex",
     "cursor": "cursor",
     "gemini": "google",
+    "copilot": "github",
+    "pi": "anthropic",
 }
 
 

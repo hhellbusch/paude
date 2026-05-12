@@ -6,6 +6,7 @@ import fnmatch
 import shlex
 import shutil
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -171,10 +172,10 @@ def harvest_session(
     )
 
     workspace = session.workspace
-    if not (workspace / ".git").is_dir():
+    if not (workspace / ".git").exists():
         typer.echo(
             f"Error: Workspace '{workspace}' is not a git repository "
-            f"(missing or no .git directory).",
+            f"(missing .git directory or file).",
             err=True,
         )
         raise typer.Exit(1)
@@ -499,3 +500,581 @@ def _check_unmerged_work(
         err=True,
     )
     raise typer.Exit(1)
+
+
+_EVENTS_FILE = ".paude-events.jsonl"
+
+
+def _parse_stream_event(line: str) -> str:
+    """Convert a Claude stream-json event line to a human-readable summary.
+
+    Returns an empty string for events that are not worth printing (e.g.
+    internal system events). Returns the raw line if it cannot be parsed.
+    """
+    import json
+
+    try:
+        event = json.loads(line)
+    except (json.JSONDecodeError, ValueError):
+        return line  # not JSON — pass through as-is (e.g. [paude] agent exited)
+
+    etype = event.get("type", "")
+
+    if etype == "assistant":
+        # Agent message — extract text content blocks
+        content = event.get("message", {}).get("content", [])
+        parts = []
+        for block in content if isinstance(content, list) else []:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(block.get("text", "").strip())
+                elif block.get("type") == "tool_use":
+                    name = block.get("name", "?")
+                    inp = block.get("input", {})
+                    # Summarise common tool calls concisely
+                    if name in ("Write", "StrReplace", "EditNotebook"):
+                        path = inp.get("path", inp.get("target_notebook", "?"))
+                        parts.append(f"[tool:{name}] {path}")
+                    elif name in ("Read", "Glob", "Grep"):
+                        target = inp.get("path", inp.get("glob_pattern", inp.get("pattern", "?")))
+                        parts.append(f"[tool:{name}] {target}")
+                    elif name == "Shell":
+                        cmd = inp.get("command", "?")[:80]
+                        parts.append(f"[tool:Shell] {cmd}")
+                    else:
+                        parts.append(f"[tool:{name}]")
+        return "\n".join(p for p in parts if p)
+
+    if etype == "result":
+        cost = event.get("cost_usd")
+        turns = event.get("num_turns")
+        cost_str = f"  cost=${cost:.4f}" if cost else ""
+        turns_str = f"  turns={turns}" if turns else ""
+        return f"[result] subtype={event.get('subtype', '?')}{turns_str}{cost_str}"
+
+    if etype == "system" and event.get("subtype") == "init":
+        model = event.get("model", "?")
+        return f"[init] model={model}"
+
+    # Skip noisy internal events silently
+    return ""
+
+
+def tail_session(
+    session_name: str,
+    lines: int = 50,
+    follow: bool = False,
+    interval: float = 3.0,
+    openshift_context: str | None = None,
+    openshift_namespace: str | None = None,
+) -> None:
+    """Print the last N lines of the agent's output from a running session.
+
+    Prefers ``.paude-events.jsonl`` (structured Claude stream-json output,
+    available in headless Claude sessions) and falls back to ``tmux
+    capture-pane`` for interactive or non-Claude sessions.
+
+    In follow mode (``-f``), polls at ``interval`` seconds and prints new
+    lines as they appear, similar to ``tail -f``. Exits cleanly on Ctrl+C.
+    """
+    _backend_type, backend, _session = _find_backend_and_session(
+        session_name, openshift_context, openshift_namespace
+    )
+
+    def _events_file_exists() -> bool:
+        rc, _, _ = backend.exec_in_session(
+            session_name,
+            f"test -s ${{PAUDE_WORKSPACE:-/workspace}}/{_EVENTS_FILE}",
+        )
+        return rc == 0
+
+    def _read_events(max_lines: int = 2000) -> list[str]:
+        rc, stdout, _ = backend.exec_in_session(
+            session_name,
+            f"tail -n {max_lines} ${{PAUDE_WORKSPACE:-/workspace}}/{_EVENTS_FILE} 2>/dev/null",
+        )
+        if rc != 0 or not stdout.strip():
+            return []
+        parsed = []
+        for raw in stdout.splitlines():
+            rendered = _parse_stream_event(raw)
+            if rendered:
+                parsed.append(rendered)
+        return parsed
+
+    def _capture_tmux(max_lines: int = 2000) -> list[str]:
+        rc, stdout, _ = backend.exec_in_session(
+            session_name,
+            f"tmux capture-pane -p -S -{max_lines} 2>/dev/null",
+        )
+        if rc != 0 or not stdout.strip():
+            return []
+        return stdout.splitlines()
+
+    use_events = _events_file_exists()
+    source_label = "stream-json events" if use_events else "tmux buffer"
+    _capture = _read_events if use_events else _capture_tmux
+
+    if not follow:
+        all_lines = _capture(max(lines * 2, 500))
+        if not all_lines:
+            typer.echo(
+                "No output found — session may be stopped, stale, or tmux is not running.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        typer.echo("\n".join(all_lines[-lines:]))
+        return
+
+    # Follow mode: print initial tail, then stream new lines as they appear.
+    typer.echo(
+        f"Tailing '{session_name}' via {source_label} (interval: {interval}s) — Ctrl+C to stop",
+        err=True,
+    )
+    seen: list[str] = []
+    first = True
+    try:
+        while True:
+            current = _capture()
+            if first:
+                to_print = current[-lines:] if current else []
+                if to_print:
+                    typer.echo("\n".join(to_print))
+                seen = current
+                first = False
+            else:
+                if len(current) > len(seen):
+                    # Normal case: output grew — print only the new lines.
+                    typer.echo("\n".join(current[len(seen) :]))
+                    seen = current
+                elif current != seen:
+                    # Content changed in-place — reprint the tail.
+                    typer.echo("---")
+                    typer.echo("\n".join(current[-lines:]))
+                    seen = current
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        typer.echo("", err=True)
+
+
+def _send_notification(title: str, message: str, enabled: bool) -> None:
+    """Send a desktop notification if enabled and notify-send is available."""
+    if not enabled:
+        return
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", title, message], capture_output=True)
+
+
+def wait_session(
+    session_name: str,
+    interval: int = 30,
+    timeout_minutes: int = 60,
+    on_idle: str | None = None,
+    send_notify: bool = True,
+    openshift_context: str | None = None,
+    openshift_namespace: str | None = None,
+) -> None:
+    """Poll a session until it reaches Idle state, then optionally run a command.
+
+    Prints a live status line showing elapsed time and current state.
+    Sends a desktop notification (via notify-send) when Idle, if available.
+
+    Exit codes:
+        0 — session reached Idle state
+        1 — timed out before reaching Idle
+    """
+    from paude.session_status import get_session_enrichment
+
+    _backend_type, backend, session = _find_backend_and_session(
+        session_name, openshift_context, openshift_namespace
+    )
+    agent_name = session.agent or "claude"
+
+    timeout_sec = timeout_minutes * 60 if timeout_minutes > 0 else None
+    start = time.time()
+
+    typer.echo(
+        f"Watching '{session_name}' "
+        f"(interval: {interval}s"
+        + (f", timeout: {timeout_minutes}m" if timeout_sec else "")
+        + ") — Ctrl+C to stop",
+        err=True,
+    )
+
+    while True:
+        elapsed = int(time.time() - start)
+
+        if timeout_sec and elapsed >= timeout_sec:
+            typer.echo("")
+            msg = f"Timed out after {timeout_minutes}m waiting for '{session_name}' to become Idle"
+            typer.echo(msg, err=True)
+            _send_notification("Paude: Timeout", msg, send_notify)
+            raise typer.Exit(1)
+
+        try:
+            activity, summary = get_session_enrichment(
+                backend, session_name, agent_name=agent_name
+            )
+        except Exception as exc:  # noqa: BLE001
+            typer.echo(
+                f"\rWarning: could not read session state ({exc}), retrying...",
+                err=True,
+            )
+            time.sleep(interval)
+            continue
+
+        elapsed_str = (
+            f"{elapsed // 60}m{elapsed % 60:02d}s" if elapsed >= 60 else f"{elapsed}s"
+        )
+        commits_info = (
+            f" (+{summary.commits_ahead} commit(s))"
+            if summary and summary.commits_ahead > 0
+            else ""
+        )
+        typer.echo(
+            f"\r[{elapsed_str}] {activity.state}{commits_info}   ",
+            nl=False,
+            err=True,
+        )
+
+        if activity.state == "Idle":
+            typer.echo("", err=True)  # newline after the live \r line
+            if summary and summary.commits_ahead > 0:
+                msg = (
+                    f"Session '{session_name}' is Idle — "
+                    f"{summary.commits_ahead} commit(s) ready to harvest"
+                )
+            else:
+                msg = (
+                    f"Session '{session_name}' is Idle — "
+                    "no new commits (agent may have stalled; connect and check)"
+                )
+            typer.echo(msg)
+            _send_notification("Paude: Idle", msg, send_notify)
+
+            if on_idle:
+                typer.echo(f"Running: {on_idle}")
+                result = subprocess.run(on_idle, shell=True)  # noqa: S602
+                raise typer.Exit(result.returncode)
+            return
+
+        time.sleep(interval)
+
+
+# ---------------------------------------------------------------------------
+# Task YAML + claim evaluation
+# ---------------------------------------------------------------------------
+
+
+def _load_task(task_file: Path) -> dict:
+    """Load and minimally validate a task YAML file."""
+    try:
+        import yaml  # type: ignore[import]
+    except ImportError:
+        typer.echo("Error: PyYAML is required for task files (pip install pyyaml).", err=True)
+        raise typer.Exit(1)
+
+    with task_file.open() as fh:
+        data = yaml.safe_load(fh)
+
+    for field in ("id", "spec_file"):
+        if field not in data:
+            typer.echo(f"Error: task file missing required field '{field}'.", err=True)
+            raise typer.Exit(1)
+
+    return data
+
+
+def _check_file_exists(path: Path) -> tuple[bool, str]:
+    return path.exists(), str(path)
+
+
+def _check_file_contains(path: Path, text: str) -> tuple[bool, str]:
+    if not path.exists():
+        return False, f"{path} does not exist"
+    content = path.read_text(errors="replace")
+    found = text in content
+    return found, f"'{text}' {'found' if found else 'not found'} in {path}"
+
+
+def _check_git_committed(workspace: Path) -> tuple[bool, str]:
+    """Return True if at least one commit exists beyond the paude base ref."""
+    result = subprocess.run(
+        ["git", "log", "refs/paude/base..HEAD", "--oneline"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+    )
+    commits = [line for line in result.stdout.splitlines() if line.strip()]
+    if commits:
+        return True, f"{len(commits)} commit(s) found: {commits[0]}"
+    # Fall back to checking for any commit if base ref doesn't exist
+    result2 = subprocess.run(
+        ["git", "log", "--oneline", "-1"],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+    )
+    if result2.stdout.strip():
+        return True, f"commit found: {result2.stdout.strip()}"
+    return False, "no commits found (agent may not have committed)"
+
+
+def evaluate_claims(
+    task: dict,
+    workspace: Path,
+    session_name: str,
+    openshift_context: str | None = None,
+    openshift_namespace: str | None = None,
+) -> list[dict]:
+    """Evaluate the claims in a task definition against the harvested workspace.
+
+    Returns a list of result dicts with keys: id, check, result (pass/fail), detail.
+    """
+    claims = task.get("claims", [])
+    if not claims:
+        typer.echo("No claims defined in task — skipping verification.", err=True)
+        return []
+
+    results = []
+    for claim in claims:
+        cid = claim.get("id", "?")
+        check = claim.get("check", "")
+        detail = ""
+        passed = False
+        agent_response: str | None = None
+
+        if check == "git_committed":
+            passed, detail = _check_git_committed(workspace)
+
+        elif check == "file_exists":
+            path = workspace / claim["path"]
+            passed, detail = _check_file_exists(path)
+
+        elif check == "file_contains":
+            path = workspace / claim["path"]
+            passed, detail = _check_file_contains(path, claim.get("contains", ""))
+
+        elif check == "agent_review":
+            prompt = claim.get("prompt", "")
+            if not prompt:
+                passed, detail = False, "agent_review claim has no prompt"
+            else:
+                passed, detail, agent_response = _run_agent_review(
+                    prompt,
+                    workspace,
+                    session_name,
+                    openshift_context=openshift_context,
+                    openshift_namespace=openshift_namespace,
+                )
+        else:
+            passed, detail = False, f"unknown check type '{check}'"
+
+        row: dict = {
+            "id": cid,
+            "check": check,
+            "result": "pass" if passed else "fail",
+            "detail": detail,
+        }
+        if agent_response is not None:
+            row["agent_response"] = agent_response
+
+        icon = "✓" if passed else "✗"
+        typer.echo(f"  {icon} {cid} [{check}]: {detail}")
+        results.append(row)
+
+    return results
+
+
+def _run_agent_review(
+    prompt: str,
+    workspace: Path,
+    parent_session: str,
+    openshift_context: str | None = None,
+    openshift_namespace: str | None = None,
+) -> tuple[bool, str, str]:
+    """Run a short Claude session to evaluate a single agent_review claim.
+
+    Spins up a throwaway paude session with a focused yes/no prompt, reads
+    the answer from .paude-events.jsonl or AGENT-NOTES.md, then cleans up.
+
+    Returns (passed, detail, raw_response).
+    """
+    import os as _os
+
+    review_session = f"{parent_session}-vfy-{int(time.time()) % 100000}"
+    review_branch = f"paude-review-{review_session}"
+
+    full_prompt = (
+        f"{prompt.strip()}\n\n"
+        "Answer with exactly one of: YES or NO, followed by a brief explanation "
+        "on the same line. Example: YES — the file contains the required content.\n"
+        "After answering, run: git add -A && git commit -m 'verify: claim check'"
+    )
+
+    spec_file = workspace / ".paude-review-prompt.txt"
+    spec_file.write_text(full_prompt)
+
+    typer.echo(
+        f"  [agent_review] launching '{review_session}'...",
+        err=True,
+    )
+
+    env = {**_os.environ, "PAUDE_DEV": "1"}
+    raw_answer = ""
+
+    try:
+        create = subprocess.run(
+            ["paude", "create", review_session, "--git", "--yolo",
+             "--prompt-file", str(spec_file)],
+            cwd=str(workspace),
+            env=env,
+        )
+        if create.returncode != 0:
+            return False, f"review session create failed", ""
+
+        subprocess.run(
+            ["paude", "wait", review_session, "--timeout", "10"],
+            cwd=str(workspace),
+        )
+
+        subprocess.run(
+            ["paude", "harvest", review_session, "-b", review_branch],
+            cwd=str(workspace),
+        )
+
+        # Read the answer from events file or AGENT-NOTES
+        events_path = workspace / _EVENTS_FILE
+        if events_path.exists():
+            for line in reversed(events_path.read_text().splitlines()):
+                rendered = _parse_stream_event(line)
+                if rendered and not rendered.startswith("["):
+                    raw_answer = rendered
+                    break
+
+        if not raw_answer:
+            notes = workspace / "AGENT-NOTES.md"
+            if notes.exists():
+                raw_answer = notes.read_text()[:500]
+
+        upper = raw_answer.upper()
+        if upper.startswith("YES"):
+            return True, f"agent review: {raw_answer[:150]}", raw_answer
+        elif upper.startswith("NO"):
+            return False, f"agent review: {raw_answer[:150]}", raw_answer
+        else:
+            return False, f"agent review: unclear — {raw_answer[:150]}", raw_answer
+
+    finally:
+        spec_file.unlink(missing_ok=True)
+        subprocess.run(["paude", "delete", review_session, "--confirm"], capture_output=True)
+        subprocess.run(["git", "branch", "-D", review_branch],
+                       cwd=str(workspace), capture_output=True)
+
+
+def run_task(
+    task_file: Path,
+    session_name: str | None = None,
+    result_file: Path | None = None,
+    harvest_branch: str | None = None,
+    openshift_context: str | None = None,
+    openshift_namespace: str | None = None,
+) -> None:
+    """Execute a task YAML end-to-end: create → wait → harvest → evaluate claims.
+
+    Writes a JSON result file if ``result_file`` is provided.
+    Exit code 0 = all claims pass. Exit code 1 = claims failed. Exit code 2 = execution error.
+    """
+    import json as _json
+    import os as _os
+
+    task = _load_task(task_file)
+    task_id = task["id"]
+
+    spec_path = task_file.parent / task["spec_file"]
+    if not spec_path.exists():
+        typer.echo(f"Error: spec_file '{spec_path}' not found.", err=True)
+        raise typer.Exit(2)
+
+    # Use a timestamp suffix so concurrent or retried runs never collide.
+    # Cleanup is deferred to the janitor — callers don't need to delete
+    # sessions before re-running the same task.
+    import datetime as _dt
+    run_ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    session = session_name or f"task-{task_id}-{run_ts}"
+    branch = harvest_branch or f"task/{task_id}-{run_ts}"
+    workspace = Path.cwd()
+
+    typer.echo(f"[run] task={task_id}  session={session}  branch={branch}")
+    start = time.time()
+
+    env = {**_os.environ, "PAUDE_DEV": "1"}
+
+    # Create session
+    typer.echo("[run] creating session...")
+    create_result = subprocess.run(
+        ["paude", "create", session, "--git", "--yolo",
+         "--prompt-file", str(spec_path)],
+        cwd=str(workspace),
+        env=env,
+    )
+    if create_result.returncode != 0:
+        typer.echo(f"[run] session create failed", err=True)
+        raise typer.Exit(2)
+
+    # Wait for idle
+    timeout = task.get("timeout_minutes", 60)
+    typer.echo(f"[run] waiting for idle (timeout: {timeout}m)...")
+    try:
+        wait_session(
+            session_name=session,
+            timeout_minutes=timeout,
+            send_notify=False,
+            openshift_context=openshift_context,
+            openshift_namespace=openshift_namespace,
+        )
+    except SystemExit as exc:
+        if exc.code != 0:
+            typer.echo("[run] wait timed out — harvesting anyway", err=True)
+
+    # Harvest
+    typer.echo(f"[run] harvesting to '{branch}'...")
+    harvest_result = subprocess.run(
+        ["paude", "harvest", session, "-b", branch],
+        cwd=str(workspace),
+    )
+    if harvest_result.returncode != 0:
+        typer.echo("[run] harvest failed", err=True)
+        raise typer.Exit(2)
+
+    # Evaluate claims
+    typer.echo("[run] evaluating claims...")
+    claim_results = evaluate_claims(
+        task, workspace, session,
+        openshift_context=openshift_context,
+        openshift_namespace=openshift_namespace,
+    )
+
+    elapsed = int(time.time() - start)
+    all_passed = all(r["result"] == "pass" for r in claim_results)
+    overall = "pass" if all_passed else "fail"
+    passed_count = sum(1 for r in claim_results if r["result"] == "pass")
+
+    typer.echo(
+        f"\n[run] result={overall}  elapsed={elapsed}s  "
+        f"claims={passed_count}/{len(claim_results)} passed"
+    )
+
+    output = {
+        "task_id": task_id,
+        "session": session,
+        "harvest_branch": branch,
+        "status": overall,
+        "elapsed_seconds": elapsed,
+        "claims": claim_results,
+    }
+    if result_file:
+        result_file.write_text(_json.dumps(output, indent=2))
+        typer.echo(f"[run] result written to {result_file}")
+
+    raise typer.Exit(0 if all_passed else 1)

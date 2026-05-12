@@ -12,7 +12,7 @@ FROM quay.io/centos/centos:stream10
 
 # dnsmasq for DNS forwarding (needed by tools like Rust reqwest on internal networks)
 # curl for health checks and debugging
-RUN dnf install -y dnsmasq curl && dnf clean all
+RUN dnf install -y dnsmasq curl bind-utils iproute && dnf clean all
 
 # Install tini init process for multi-process signal handling
 ARG TINI_VERSION=v0.19.0

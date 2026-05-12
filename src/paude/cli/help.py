@@ -119,6 +119,14 @@ _SECTIONS: tuple[HelpSection, ...] = (
                 "Pass all GPUs on remote host",
             ),
             (
+                "paude create --agent pi --provider vertex",
+                "Create Pi session on Vertex AI",
+            ),
+            (
+                "paude create --agent copilot",
+                "Create GitHub Copilot CLI session",
+            ),
+            (
                 "paude create --otel-endpoint http://collector:4318",
                 "Export agent telemetry to OTLP collector",
             ),
@@ -144,7 +152,7 @@ _SECTIONS: tuple[HelpSection, ...] = (
         title="Security",
         text=(
             "By default, paude runs with network restricted"
-            " to Vertex AI, PyPI, and GitHub.\n"
+            " to your provider's API, PyPI, and GitHub.\n"
             "Use --allowed-domains all to permit all"
             " network access (enables data exfil).\n"
             "Combining --yolo with --allowed-domains all"
@@ -157,16 +165,23 @@ _SECTIONS: tuple[HelpSection, ...] = (
         title="Agents & Providers",
         rows=(
             ("--agent claude", "Claude Code (default)"),
+            ("--agent copilot", "GitHub Copilot CLI"),
             ("--agent cursor", "Cursor CLI"),
             ("--agent gascity", "Gas City (multi-agent orchestration)"),
             ("--agent gemini", "Gemini CLI"),
             ("--agent openclaw", "OpenClaw (web UI on port 18789)"),
+            ("--agent pi", "Pi coding agent (extensible via --pi-extension)"),
             ("", ""),
             ("--provider vertex", "Vertex AI (default for claude, openclaw)"),
-            ("--provider anthropic", "Anthropic API"),
+            ("--provider anthropic", "Anthropic API (default for pi)"),
             ("--provider openai", "OpenAI API"),
             ("--provider cursor", "Cursor API (default for cursor)"),
             ("--provider google", "Google AI (default for gemini)"),
+            ("--provider github", "GitHub Copilot (default for copilot)"),
+            ("", ""),
+            ("Pi-only flags:", ""),
+            ("--pi-extension git:https://...", "Install Pi extension (repeatable)"),
+            ("--upstream-ca /path/to/ca.pem", "Inject CA cert into proxy trust store"),
         ),
     ),
 )

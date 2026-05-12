@@ -11,6 +11,8 @@ Run AI coding agents in secure containers. They make commits, you pull them back
 | [Gas City](https://github.com/gastownhall/gascity) | `--agent gascity` | Supported |
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `--agent gemini` | Supported |
 | [OpenClaw](https://github.com/openclaw/openclaw) | `--agent openclaw` | Supported |
+| [Pi](https://github.com/earendil-works/pi) | `--agent pi` | Supported |
+| [GitHub Copilot CLI](https://github.com/github/gh-copilot) | `--agent copilot` | Supported |
 
 > Agents are installed automatically inside the container — no local agent installation needed. You just need authentication credentials for your chosen provider.
 
@@ -36,7 +38,7 @@ Run AI coding agents in secure containers. They make commits, you pull them back
 **Authentication** — set up credentials for your chosen provider:
 
 <details>
-<summary><strong>Google Cloud / Vertex AI</strong> (Claude Code, Gemini CLI, OpenClaw)</summary>
+<summary><strong>Google Cloud / Vertex AI</strong> (Claude Code, Gemini CLI, OpenClaw, Pi)</summary>
 
 Install the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install), then:
 
@@ -54,6 +56,10 @@ export GOOGLE_CLOUD_PROJECT=your-project-id
 
 # Gemini CLI / OpenClaw via Vertex
 export GOOGLE_CLOUD_PROJECT=your-project-id
+
+# Pi via Vertex (Claude or Gemini models)
+export GOOGLE_CLOUD_PROJECT=your-project-id
+export ANTHROPIC_VERTEX_PROJECT_ID=your-project-id  # for Claude models via Pi
 ```
 
 </details>
@@ -118,6 +124,13 @@ paude create --agent cursor --yolo --git my-project
 # Gemini CLI
 paude create --agent gemini --yolo --git my-project
 
+# Pi — minimal terminal agent, no permission system (container is the boundary)
+paude create --agent pi --provider vertex --yolo --git my-project
+paude create --agent pi --provider anthropic --yolo --git my-project  # requires ANTHROPIC_API_KEY
+
+# GitHub Copilot CLI — requires COPILOT_GITHUB_TOKEN
+paude create --agent copilot --yolo --git my-project
+
 # Connect to a CLI agent's running session
 paude connect my-project
 
@@ -158,6 +171,8 @@ Or just start the session and type your request in the agent interface.
 **Learn more**:
 - [Session Management](docs/SESSIONS.md) — commands, lifecycle, code sync
 - [Configuration](docs/CONFIGURATION.md) — defaults, network domains, GitHub CLI, custom environments
+- [Pi Agent](docs/PI.md) — Pi setup, providers, Vertex AI (Claude + Gemini), GitHub Copilot
+- [GitHub Copilot CLI](docs/COPILOT.md) — token setup and first session
 - [Security Model](docs/SECURITY.md) — attack vectors, `--yolo` safety, residual risks
 - [Orchestration](docs/ORCHESTRATION.md) — fire-and-forget workflow, harvest, PRs
 - [Remote Hosts & Docker](docs/REMOTE.md) — SSH remotes, Docker backend, GPU passthrough

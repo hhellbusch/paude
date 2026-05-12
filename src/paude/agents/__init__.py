@@ -4,29 +4,35 @@ from __future__ import annotations
 
 from paude.agents.base import Agent, AgentConfig
 from paude.agents.claude import ClaudeAgent
+from paude.agents.copilot import CopilotAgent
 from paude.agents.cursor import CursorAgent
 from paude.agents.gascity import GascityAgent
 from paude.agents.gemini import GeminiAgent
 from paude.agents.openclaw import OpenClawAgent
+from paude.agents.pi import PiAgent
 
 __all__ = [
     "Agent",
     "AgentConfig",
     "ClaudeAgent",
+    "CopilotAgent",
     "CursorAgent",
     "GascityAgent",
     "GeminiAgent",
     "OpenClawAgent",
+    "PiAgent",
     "get_agent",
     "list_agents",
 ]
 
 _REGISTRY: dict[str, type] = {
     "claude": ClaudeAgent,
+    "copilot": CopilotAgent,
     "cursor": CursorAgent,
     "gascity": GascityAgent,
     "gemini": GeminiAgent,
     "openclaw": OpenClawAgent,
+    "pi": PiAgent,
 }
 
 

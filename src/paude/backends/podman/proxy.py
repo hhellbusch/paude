@@ -18,7 +18,9 @@ from paude.backends.shared import (
     CA_CERT_POLL_TIMEOUT,
     PAUDE_LABEL_DOMAINS,
     PAUDE_LABEL_OTEL_PORTS,
+    PAUDE_LABEL_PROXY_ADD_HOSTS,
     PAUDE_LABEL_PROXY_IMAGE,
+    PAUDE_LABEL_UPSTREAM_CA,
     PROXY_BLOCKED_LOG_PATH,
     SYS_CA_BUNDLE_PATHS,
     derive_agent_ip,
@@ -139,11 +141,12 @@ class PodmanProxyManager:
 
     def get_config_from_labels(
         self, session_name: str
-    ) -> tuple[str, list[str], list[int]] | None:
+    ) -> tuple[str, list[str], list[int], str | None, list[str] | None] | None:
         """Read proxy configuration from the main container's labels.
 
         Returns:
-            Tuple of (proxy_image, domains, otel_ports) or None.
+            Tuple of (proxy_image, domains, otel_ports, upstream_ca_path,
+            add_hosts) or None.
         """
         container = find_container_by_session_name(self._runner, session_name)
         if container is None:
@@ -164,7 +167,12 @@ class PodmanProxyManager:
         otel_ports_str = labels.get(PAUDE_LABEL_OTEL_PORTS, "")
         otel_ports = [int(p) for p in otel_ports_str.split(",") if p]
 
-        return (proxy_image, domains, otel_ports)
+        upstream_ca = labels.get(PAUDE_LABEL_UPSTREAM_CA) or None
+
+        add_hosts_str = labels.get(PAUDE_LABEL_PROXY_ADD_HOSTS, "")
+        add_hosts = [h for h in add_hosts_str.split(",") if h] or None
+
+        return (proxy_image, domains, otel_ports, upstream_ca, add_hosts)
 
     def start_if_needed(
         self,
@@ -187,7 +195,7 @@ class PodmanProxyManager:
             return
 
         # Recreate the missing proxy
-        proxy_image, domains, otel_ports = proxy_config
+        proxy_image, domains, otel_ports, upstream_ca_path, add_hosts = proxy_config
         nname = network_name(session_name)
         ca_vol = ca_volume_name(session_name)
 
@@ -213,6 +221,8 @@ class PodmanProxyManager:
             credentials=credentials,
             allowed_clients=agent_ip,
             secret_refs=secret_refs,
+            upstream_ca_path=upstream_ca_path,
+            add_hosts=add_hosts,
         )
         self._proxy_runner.start_session_proxy(pname)
 
@@ -324,6 +334,8 @@ class PodmanProxyManager:
         allowed_domains: list[str] | None,
         otel_ports: list[int] | None = None,
         credentials: dict[str, str] | None = None,
+        upstream_ca_path: str | None = None,
+        add_hosts: list[str] | None = None,
     ) -> tuple[str, str | None]:
         """Create a proxy container for a session.
 
@@ -370,6 +382,8 @@ class PodmanProxyManager:
                 credentials=credentials,
                 allowed_clients=agent_ip,
                 secret_refs=secret_refs,
+                upstream_ca_path=upstream_ca_path,
+                add_hosts=add_hosts,
             )
         except Exception:
             volume_mgr.remove_volume(ca_vol, force=True)
@@ -495,9 +509,9 @@ class PodmanProxyManager:
         if not proxy_image:
             raise ValueError(f"Cannot inspect proxy container: {pname}")
 
-        # Preserve OTEL ports from labels across proxy recreate
+        # Preserve OTEL ports and add_hosts from labels across proxy recreate
         proxy_config = self.get_config_from_labels(session_name)
-        _, _, otel_ports = proxy_config if proxy_config else ("", [], [])
+        _, _, otel_ports, _, add_hosts = proxy_config if proxy_config else ("", [], [], None, None)
 
         nname = network_name(session_name)
         ca_vol = ca_volume_name(session_name)
@@ -523,6 +537,7 @@ class PodmanProxyManager:
             credentials=credentials,
             allowed_clients=agent_ip,
             secret_refs=secret_refs,
+            add_hosts=add_hosts,
         )
 
         # Verify CA cert survived the recreate (same named volume = same cert).

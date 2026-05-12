@@ -9,6 +9,9 @@ DOMAIN_ALIASES: dict[str, list[str]] = {
         "accounts.google.com",
         "oauth2.googleapis.com",
         "www.googleapis.com",
+        # GCP instance metadata server — used by google-auth-library (Node.js + Python)
+        # to retrieve ADC tokens when running on GCE/GKE/Cloud Run.
+        "metadata.google.internal",
         # Vertex AI API (regional endpoints: REGION-aiplatform.googleapis.com)
         # Uses regex (~) because regional endpoints use hyphens, not subdomains
         "~aiplatform\\.googleapis\\.com$",
@@ -63,6 +66,11 @@ DOMAIN_ALIASES: dict[str, list[str]] = {
         "codeload.github.com",
         "release-assets.githubusercontent.com",
         "results-receiver.actions.githubusercontent.com",
+    ],
+    "copilot": [
+        "api.githubcopilot.com",
+        "copilot-proxy.githubusercontent.com",
+        "telemetry.githubcopilot.com",
     ],
     "openai": [
         ".openai.com",

@@ -87,11 +87,49 @@ class ProxyRunner:
                 args.extend(["--secret", ref])
         return args
 
-    def _build_volume_args(self, ca_volume: str | None = None) -> list[str]:
+    def _build_volume_args(
+        self,
+        ca_volume: str | None = None,
+        upstream_ca_path: str | None = None,
+    ) -> list[str]:
         """Build volume mount arguments for proxy containers."""
         args: list[str] = []
         if ca_volume:
             args.extend(["-v", f"{ca_volume}:/data/ca"])
+        if upstream_ca_path:
+            args.extend(
+                [
+                    "-v",
+                    f"{upstream_ca_path}:/etc/pki/ca-trust/source/anchors/paude-upstream-ca.crt:z",
+                ]
+            )
+        return args
+
+    def _build_entrypoint_args(self, upstream_ca_path: str | None = None) -> list[str]:
+        """Build entrypoint override args for proxy containers.
+
+        When an upstream CA cert is mounted, the proxy container's entrypoint
+        must run ``update-ca-trust`` before starting so that the Go TLS client
+        trusts the private CA when connecting to the upstream LLM server.
+        """
+        if not upstream_ca_path:
+            return []
+        return [
+            "--entrypoint",
+            '["bash", "-c", "update-ca-trust && exec /usr/local/bin/paude-entrypoint.sh"]',
+        ]
+
+    @staticmethod
+    def _build_add_host_args(add_hosts: list[str] | None = None) -> list[str]:
+        """Build --add-host arguments for proxy containers.
+
+        Each entry should be in the form ``hostname:ip`` or
+        ``hostname:host-gateway``.
+        """
+        args: list[str] = []
+        if add_hosts:
+            for entry in add_hosts:
+                args.extend(["--add-host", entry])
         return args
 
     def create_session_proxy(
@@ -107,6 +145,8 @@ class ProxyRunner:
         credentials: dict[str, str] | None = None,
         allowed_clients: str | None = None,
         secret_refs: list[str] | None = None,
+        upstream_ca_path: str | None = None,
+        add_hosts: list[str] | None = None,
     ) -> str:
         """Create a proxy container for a session (does not start it).
 
@@ -123,7 +163,9 @@ class ProxyRunner:
             dns, allowed_domains, otel_ports, env_credentials, allowed_clients
         )
         secret_args = self._build_secret_args(secret_refs)
-        vol_args = self._build_volume_args(ca_volume)
+        vol_args = self._build_volume_args(ca_volume, upstream_ca_path)
+        entrypoint_args = self._build_entrypoint_args(upstream_ca_path)
+        add_host_args = self._build_add_host_args(add_hosts)
 
         ip_args: list[str] = []
         if ip and not self._engine.supports_multi_network_create:
@@ -140,6 +182,8 @@ class ProxyRunner:
             *env_args,
             *secret_args,
             *vol_args,
+            *entrypoint_args,
+            *add_host_args,
             image,
             check=False,
         )
@@ -173,6 +217,8 @@ class ProxyRunner:
         credentials: dict[str, str] | None = None,
         allowed_clients: str | None = None,
         secret_refs: list[str] | None = None,
+        upstream_ca_path: str | None = None,
+        add_hosts: list[str] | None = None,
     ) -> str:
         """Recreate a session proxy with new configuration.
 
@@ -194,6 +240,8 @@ class ProxyRunner:
             credentials=credentials,
             allowed_clients=allowed_clients,
             secret_refs=secret_refs,
+            upstream_ca_path=upstream_ca_path,
+            add_hosts=add_hosts,
         )
         self.start_session_proxy(name)
 

@@ -48,6 +48,7 @@ def create_openshift_session(
     build_resources: dict[str, dict[str, str]] | None = None,
     otel_ports: list[int] | None = None,
     otel_endpoint: str | None = None,
+    pi_extensions: list[str] | None = None,
 ) -> None:
     """OpenShift-specific session creation logic."""
     os_script_dir = _detect_dev_script_dir()

@@ -13,6 +13,7 @@ from paude.cli.helpers import (
     _expand_allowed_domains,
     _parse_agent_args,
     _prepare_session_create,
+    append_inference_endpoint_hosts_to_allowlist,
 )
 
 
@@ -71,6 +72,18 @@ def session_create(
             help="Arguments to pass to claude (e.g., -a '-p \"prompt\"').",
         ),
     ] = None,
+    prompt_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--prompt-file",
+            help=(
+                "File containing the initial prompt to pass to the agent. "
+                "Reads the file and passes its content as -p, avoiding shell "
+                "quoting issues with --args for multi-line or complex prompts. "
+                "Mutually exclusive with --args."
+            ),
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         typer.Option(
@@ -118,7 +131,7 @@ def session_create(
         str | None,
         typer.Option(
             "--agent",
-            help="Agent to use: claude (default), cursor, gascity, gemini, openclaw.",
+            help="Agent to use: claude (default), cursor, gascity, gemini, openclaw, pi, copilot.",
         ),
     ] = None,
     provider: Annotated[
@@ -167,6 +180,27 @@ def session_create(
             help="OTLP collector endpoint for telemetry export (e.g., http://collector:4318).",
         ),
     ] = None,
+    pi_extension: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--pi-extension",
+            help=(
+                "Pi only: argument to `pi install` (e.g. git:https://github.com/org/repo.git). "
+                "Repeatable."
+            ),
+        ),
+    ] = None,
+    upstream_ca: Annotated[
+        str | None,
+        typer.Option(
+            "--upstream-ca",
+            help=(
+                "Path on the host to a PEM CA certificate to inject into the proxy "
+                "container's trust store.  Required when OPENAI_BASE_URL uses a "
+                "self-signed TLS certificate."
+            ),
+        ),
+    ] = None,
     host: Annotated[
         str | None,
         typer.Option(
@@ -188,6 +222,14 @@ def session_create(
     from paude.config.user_config import load_user_defaults
 
     workspace = Path.cwd()
+
+    # Validate --prompt-file / --args mutual exclusivity
+    if prompt_file is not None and claude_args is not None:
+        typer.echo("Error: --prompt-file and --args are mutually exclusive.", err=True)
+        raise typer.Exit(1)
+    if prompt_file is not None and not prompt_file.exists():
+        typer.echo(f"Error: Prompt file not found: {prompt_file}", err=True)
+        raise typer.Exit(1)
 
     # Load user defaults
     user_defaults = load_user_defaults()
@@ -259,6 +301,8 @@ def session_create(
         from paude.dry_run import show_dry_run
 
         parsed_args = _parse_agent_args(claude_args)
+        if prompt_file is not None:
+            parsed_args = ["-p", prompt_file.read_text()]
         agent_instance = get_agent(r_agent, provider=r_provider)
 
         expanded = _expand_allowed_domains(
@@ -322,6 +366,16 @@ def session_create(
         provider_name=r_provider,
         otel_endpoint=r_otel_endpoint,
     )
+    # --prompt-file bypasses shlex entirely: read file content and pass as -p
+    if prompt_file is not None:
+        parsed_args = ["-p", prompt_file.read_text()]
+
+    # Append OPENAI_BASE_URL host to allowlist when set
+    append_inference_endpoint_hosts_to_allowlist(
+        expanded_domains,
+        provider_name=r_provider,
+        otel_endpoint=r_otel_endpoint,
+    )
 
     # Compute OTEL proxy ports (non-standard ports to allow through proxy)
     otel_ports: list[int] = []
@@ -329,6 +383,16 @@ def session_create(
         from paude.otel import otel_proxy_ports
 
         otel_ports = otel_proxy_ports(r_otel_endpoint)
+
+    # Open the LLM API port whenever OPENAI_BASE_URL is set
+    from paude.cli.helpers import openai_api_port_from_environ
+
+    llm_port = openai_api_port_from_environ()
+    if llm_port is not None and llm_port not in otel_ports:
+        otel_ports.append(llm_port)
+
+    # Resolve pi_extensions — CLI flags override, user defaults as fallback
+    r_pi_extensions = pi_extension or user_defaults.pi_extensions or []
 
     if r_backend in (BackendType.podman, BackendType.docker):
         from paude.cli.create_podman import create_podman_session
@@ -355,6 +419,8 @@ def session_create(
             gpu=r_gpu,
             otel_ports=otel_ports,
             otel_endpoint=r_otel_endpoint,
+            pi_extensions=r_pi_extensions,
+            upstream_ca_path=upstream_ca,
         )
     else:
         from paude.cli.create_openshift import create_openshift_session
@@ -382,4 +448,5 @@ def session_create(
             build_resources=r_openshift_build_resources,
             otel_ports=otel_ports,
             otel_endpoint=r_otel_endpoint,
+            pi_extensions=r_pi_extensions,
         )

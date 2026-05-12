@@ -30,6 +30,16 @@ make install
 # or: uv pip install -e ".[dev]"
 ```
 
+To make the global `paude` command use your local checkout (recommended for iterative CLI work):
+
+```bash
+uv tool install --editable . --reinstall
+which paude
+~/.local/share/uv/tools/paude/bin/python -c "import paude; print(paude.__file__)"
+```
+
+Expected import path should point at your clone under `src/paude/`.
+
 ### Dev Mode
 
 When developing, use `PAUDE_DEV=1` to build images locally instead of pulling from the registry:

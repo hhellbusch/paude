@@ -157,6 +157,59 @@ def _make_create_session_backend(
     return backend
 
 
+class TestPodmanBackendAdcInjection:
+    """Tests for ADC injection behavior at session startup."""
+
+    def test_startup_uses_gcp_injection_path(self) -> None:
+        """Startup uses dynamic GCP credential injection path."""
+        backend = _make_backend(MagicMock())
+        backend._inject_gcp_credentials = MagicMock()  # type: ignore[method-assign]
+        backend._runner.start_container = MagicMock()
+        backend._fix_volume_permissions = MagicMock()  # type: ignore[method-assign]
+        backend._proxy.distribute_ca_cert = MagicMock()  # type: ignore[method-assign]
+        backend._sync_host_config = MagicMock()  # type: ignore[method-assign]
+        backend._sync_sandbox_config = MagicMock()  # type: ignore[method-assign]
+        agent = MagicMock()
+        backend._get_session_agent = MagicMock(return_value=agent)
+        backend._gather_proxy_credentials = MagicMock(return_value={})  # type: ignore[method-assign]
+        backend._proxy.start_if_needed = MagicMock()  # type: ignore[method-assign]
+
+        backend._start_session_containers("test", "paude-test")
+
+        backend._inject_gcp_credentials.assert_called_once_with("paude-test", agent)
+
+    def test_inject_gcp_credentials_uses_real_adc_for_vertex(self, tmp_path: Path) -> None:
+        """Vertex sessions receive real ADC when host ADC exists."""
+        backend = _make_backend(MagicMock())
+        adc_file = tmp_path / "application_default_credentials.json"
+        adc_file.write_text('{"type":"authorized_user","client_id":"cid"}')
+        backend._local_adc_path = MagicMock(return_value=adc_file)  # type: ignore[method-assign]
+        backend._inject_stub_credentials = MagicMock()  # type: ignore[method-assign]
+        backend._runner.inject_file = MagicMock()
+        agent = MagicMock()
+        agent.config.provider = "vertex"
+
+        backend._inject_gcp_credentials("paude-test", agent)
+
+        backend._runner.inject_file.assert_called_once()
+        args = backend._runner.inject_file.call_args.args
+        assert args[0] == "paude-test"
+        assert '"client_id":"cid"' in args[1]
+        backend._inject_stub_credentials.assert_not_called()
+
+    def test_inject_gcp_credentials_falls_back_to_stub_without_vertex_adc(self) -> None:
+        """Non-Vertex sessions or missing ADC use stub credentials."""
+        backend = _make_backend(MagicMock())
+        backend._local_adc_path = MagicMock(return_value=None)  # type: ignore[method-assign]
+        backend._inject_stub_credentials = MagicMock()  # type: ignore[method-assign]
+        agent = MagicMock()
+        agent.config.provider = "anthropic"
+
+        backend._inject_gcp_credentials("paude-test", agent)
+
+        backend._inject_stub_credentials.assert_called_once_with("paude-test")
+
+
 class TestPodmanBackendCreateSession:
     """Tests for PodmanBackend.create_session."""
 

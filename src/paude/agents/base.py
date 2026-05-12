@@ -210,7 +210,13 @@ class Agent(Protocol):
         ...
 
     def apply_sandbox_config(
-        self, home: str, workspace: str, args: str, *, yolo: bool = False
+        self,
+        home: str,
+        workspace: str,
+        args: str,
+        *,
+        yolo: bool = False,
+        pi_extensions: list[str] | None = None,
     ) -> str:
         """Return shell script content to apply sandbox config.
 
@@ -220,6 +226,7 @@ class Agent(Protocol):
             home: Home directory inside container.
             workspace: Workspace directory inside container.
             args: Agent args string.
+            pi_extensions: Pi only — specs for ``pi install`` (ignored by other agents).
 
         Returns:
             Shell script content.

@@ -35,8 +35,10 @@ from paude.backends.shared import (
     PAUDE_LABEL_OTEL_ENDPOINT,
     PAUDE_LABEL_OTEL_PORTS,
     PAUDE_LABEL_PROVIDER,
+    PAUDE_LABEL_PROXY_ADD_HOSTS,
     PAUDE_LABEL_PROXY_IMAGE,
     PAUDE_LABEL_SESSION,
+    PAUDE_LABEL_UPSTREAM_CA,
     PAUDE_LABEL_VERSION,
     PAUDE_LABEL_WORKSPACE,
     PAUDE_LABEL_YOLO,
@@ -188,6 +190,9 @@ class PodmanBackend:
 
     def _sync_sandbox_config(self, cname: str, session_name: str) -> None:
         """Generate and write agent sandbox config script into container."""
+        from paude.backends.shared import parse_pi_extensions_json
+        from paude.constants import PAUDE_PI_EXTENSIONS_ENV
+
         labels = self._get_session_labels(session_name)
         agent_name = str(labels.get(PAUDE_LABEL_AGENT, "claude"))
         provider = labels.get(PAUDE_LABEL_PROVIDER) or None
@@ -197,8 +202,12 @@ class PodmanBackend:
         )
         args = self._runner.get_container_env(cname, "PAUDE_AGENT_ARGS") or ""
         yolo = labels.get(PAUDE_LABEL_YOLO) == "1"
+        pi_exts = parse_pi_extensions_json(
+            self._runner.get_container_env(cname, PAUDE_PI_EXTENSIONS_ENV)
+        )
         content = generate_sandbox_config_script(
-            agent_name, workspace, args, provider=provider, yolo=yolo
+            agent_name, workspace, args, provider=provider, yolo=yolo,
+            pi_extensions=pi_exts or None,
         )
         self._runner.inject_file(
             cname,
@@ -225,12 +234,29 @@ class PodmanBackend:
     def _inject_stub_credentials(self, cname: str) -> None:
         """Inject stub GCP ADC into a running container.
 
-        All real authentication is handled by the proxy sidecar. The agent
-        container only gets a stub ADC JSON to satisfy client library checks.
+        Used for non-Vertex sessions so client libraries that probe ADC files
+        still find a syntactically valid credential document.
         """
         from paude.backends.shared import STUB_ADC_JSON
 
         self._runner.inject_file(cname, STUB_ADC_JSON, GCP_ADC_TARGET, owner="paude:0")
+
+    def _inject_gcp_credentials(self, cname: str, agent: Agent) -> None:
+        """Inject GCP ADC into the agent container when Vertex auth needs it.
+
+        Upstream security posture allows in-container ADC for Vertex while
+        relying on egress filtering and container isolation as the primary guard.
+        """
+        adc_path = self._local_adc_path()
+        if agent.config.provider == "vertex" and adc_path is not None:
+            self._runner.inject_file(
+                cname,
+                adc_path.read_text(),
+                GCP_ADC_TARGET,
+                owner="paude:0",
+            )
+            return
+        self._inject_stub_credentials(cname)
 
     def create_session(self, config: SessionConfig) -> Session:
         """Create a new session (does not start it).
@@ -272,6 +298,10 @@ class PodmanBackend:
             labels[PAUDE_LABEL_OTEL_PORTS] = ",".join(str(p) for p in config.otel_ports)
         if config.otel_endpoint:
             labels[PAUDE_LABEL_OTEL_ENDPOINT] = config.otel_endpoint
+        if config.upstream_ca_path:
+            labels[PAUDE_LABEL_UPSTREAM_CA] = config.upstream_ca_path
+        if config.proxy_add_hosts:
+            labels[PAUDE_LABEL_PROXY_ADD_HOSTS] = ",".join(config.proxy_add_hosts)
 
         print(f"Creating session '{session_name}'...", file=sys.stderr)
 
@@ -298,6 +328,8 @@ class PodmanBackend:
                     config.allowed_domains,
                     otel_ports=config.otel_ports,
                     credentials=proxy_creds,
+                    upstream_ca_path=config.upstream_ca_path,
+                    add_hosts=config.proxy_add_hosts or None,
                 )
             except Exception:
                 if not config.reuse_volume:
@@ -330,8 +362,8 @@ class PodmanBackend:
         )
         env["PAUDE_WORKSPACE"] = CONTAINER_WORKSPACE
 
-        # Create container (stopped) — no real credentials are passed.
-        # Agent gets stub ADC injected at start time.
+        # Create container (stopped). GCP ADC is injected at start time for
+        # Vertex sessions; all other sessions use a stub credential file.
         print(f"Creating container {cname}...", file=sys.stderr)
         try:
             dns = [proxy_ip] if proxy_ip else None
@@ -394,10 +426,9 @@ class PodmanBackend:
         )
 
     def _start_session_containers(self, name: str, cname: str) -> Agent:
-        """Start proxy and agent containers, inject stub credentials and config.
+        """Start proxy and agent containers, inject credentials and config.
 
         Shared startup sequence used by both interactive and headless paths.
-        No real credentials are injected into the agent container.
 
         Returns:
             The resolved agent.
@@ -408,7 +439,7 @@ class PodmanBackend:
         self._runner.start_container(cname)
         self._fix_volume_permissions(cname)
         self._proxy.distribute_ca_cert(name)
-        self._inject_stub_credentials(cname)
+        self._inject_gcp_credentials(cname, agent)
         self._sync_host_config(cname, agent.config.name)
         self._sync_sandbox_config(cname, name)
         return agent

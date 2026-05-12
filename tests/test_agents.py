@@ -19,6 +19,7 @@ from paude.agents.cursor import CursorAgent
 from paude.agents.gascity import GascityAgent
 from paude.agents.gemini import GeminiAgent
 from paude.agents.openclaw import OpenClawAgent
+from paude.agents.pi import PiAgent
 
 
 class TestRegistry:
@@ -252,6 +253,20 @@ class TestClaudeAgentBuildEnvironment:
                 "CLAUDE_CODE_USE_VERTEX": "1",
                 "NODE_USE_ENV_PROXY": "1",
             }
+
+
+class TestPiAgentCredentialBoundary:
+    """Tests for Pi vertex provider initialization."""
+
+    def test_vertex_provider_allowed_by_default(self) -> None:
+        with patch.dict("os.environ", {}, clear=True):
+            agent = PiAgent(provider="vertex")
+            assert agent.config.provider == "vertex"
+
+    def test_vertex_provider_allowed_with_proxy_mode_marker(self) -> None:
+        with patch.dict("os.environ", {"PAUDE_VERTEX_AUTH_MODE": "proxy"}, clear=True):
+            agent = PiAgent(provider="vertex")
+            assert agent.config.provider == "vertex"
 
 
 class TestClaudeAgentSandboxConfig:

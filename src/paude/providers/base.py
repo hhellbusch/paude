@@ -44,6 +44,10 @@ _PROVIDERS: dict[str, ProviderConfig] = {
         name="openai",
         display_name="OpenAI",
         secret_env_vars=["OPENAI_API_KEY"],
+        passthrough_env_vars=[
+            "OPENAI_BASE_URL",
+            "OPENAI_API_BASE",
+        ],
         domain_aliases=["openai"],
     ),
     "anthropic": ProviderConfig(
@@ -64,6 +68,16 @@ _PROVIDERS: dict[str, ProviderConfig] = {
         passthrough_env_vars=["GOOGLE_CLOUD_PROJECT"],
         passthrough_env_prefixes=["CLOUDSDK_AUTH_"],
         domain_aliases=["vertexai"],
+    ),
+    "github": ProviderConfig(
+        name="github",
+        display_name="GitHub Copilot",
+        # All three are checked in order of precedence by the copilot binary.
+        secret_env_vars=["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"],
+        # GITHUB_SERVER_URL supports GitHub Enterprise Server (custom hostname).
+        # COPILOT_HOME overrides the default ~/.copilot config directory.
+        passthrough_env_vars=["GITHUB_SERVER_URL", "COPILOT_HOME"],
+        domain_aliases=["github", "copilot"],
     ),
 }
 
