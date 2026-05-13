@@ -49,11 +49,14 @@ DNSMASQ_PID=$!
 # Give dnsmasq a moment to start
 sleep 0.2
 
-# ── Credential injection config (OpenAI-compat + Vertex relay pattern) ─────
-# Build one credentials config consumed by paude-proxy.
-# - OpenAI-compat uses OPENAI_COMPAT_API_KEY on the host-defined endpoint host.
-# - Vertex relay pattern (experimental) uses a host-minted short-lived bearer
-#   token (PAUDE_VERTEX_BEARER_TOKEN) scoped to <region>-aiplatform.googleapis.com.
+# ── Credential injection config ─────────────────────────────────────────────
+# Build a credentials config consumed by paude-proxy. Handles:
+# - GCP ADC (Vertex AI / Gemini): TokenVendor + GCloudInjector pattern.
+#   GCP_ADC_JSON content is written to /tmp/gcp-adc.json; GOOGLE_APPLICATION_CREDENTIALS
+#   is exported so paude-proxy can mint and refresh real OAuth2 tokens.
+#   The agent container holds only a stub ADC with dummy values.
+# - OpenAI-compat: bearer token injection for private LLM endpoints.
+# - GitHub: bearer (API) + basic auth (git over HTTPS).
 _proxy_creds_file="/tmp/paude-proxy-credentials.json"
 python3 <<'PY' || true
 import json
@@ -62,6 +65,26 @@ import sys
 from urllib.parse import urlparse
 
 cfg = {"credentials": []}
+
+# GCP ADC — write JSON content to a file so GOOGLE_APPLICATION_CREDENTIALS can
+# point to it. The gcloud injector replaces the agent's dummy Bearer token with
+# a real OAuth2 token on every request to *.googleapis.com.
+gcp_adc_json = (os.environ.get("GCP_ADC_JSON") or "").strip()
+if gcp_adc_json:
+    adc_path = "/tmp/gcp-adc.json"
+    try:
+        with open(adc_path, "w", encoding="utf-8") as f:
+            f.write(gcp_adc_json)
+        cfg["credentials"].append(
+            {
+                "env_var": "GOOGLE_APPLICATION_CREDENTIALS",
+                "injector": "gcloud",
+                "domains": [".googleapis.com"],
+            }
+        )
+        print("GCP ADC credential injection: ENABLED (.googleapis.com)", file=sys.stderr)
+    except Exception as e:
+        print(f"WARN: Failed to write GCP ADC file: {e}", file=sys.stderr)
 
 openai_key = (os.environ.get("OPENAI_COMPAT_API_KEY") or "").strip()
 openai_base = (os.environ.get("OPENAI_COMPAT_BASE_URL") or "").strip()
@@ -105,38 +128,16 @@ if gh_token and gh_token != "proxy-managed":
     )
     print("GitHub credential injection: ENABLED (api.github.com Bearer + github.com Basic git)", file=sys.stderr)
 
-vertex_mode = (os.environ.get("PAUDE_VERTEX_AUTH_MODE") or "").strip().lower()
-if vertex_mode == "proxy":
-    token = (os.environ.get("PAUDE_VERTEX_BEARER_TOKEN") or "").strip()
-    region = (
-        (os.environ.get("PAUDE_VERTEX_REGION") or "").strip()
-        or (os.environ.get("GOOGLE_CLOUD_LOCATION") or "").strip()
-        or (os.environ.get("CLOUD_ML_REGION") or "").strip()
-        or "us-east5"
-    )
-    host = f"{region}-aiplatform.googleapis.com"
-    if token:
-        cfg["credentials"].append(
-            {
-                "env_var": "PAUDE_VERTEX_BEARER_TOKEN",
-                "injector": "bearer",
-                "domains": [host],
-            }
-        )
-        print(
-            f"Vertex proxy auth pattern: ENABLED ({host}, token relay)",
-            file=sys.stderr,
-        )
-    else:
-        print(
-            "WARN: PAUDE_VERTEX_AUTH_MODE=proxy set but no PAUDE_VERTEX_BEARER_TOKEN is available",
-            file=sys.stderr,
-        )
-
 if cfg["credentials"]:
     with open("/tmp/paude-proxy-credentials.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
 PY
+
+# Export GOOGLE_APPLICATION_CREDENTIALS if the ADC file was written above.
+# This must happen in bash (not Python) so the env var is inherited by paude-proxy.
+if [[ -f "/tmp/gcp-adc.json" ]]; then
+    export GOOGLE_APPLICATION_CREDENTIALS="/tmp/gcp-adc.json"
+fi
 
 if [[ -f "${_proxy_creds_file}" ]]; then
     export PAUDE_PROXY_CREDENTIALS_CONFIG="${_proxy_creds_file}"

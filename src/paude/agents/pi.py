@@ -26,10 +26,12 @@ class PiAgent:
     Supported providers (selectable via --provider on paude create):
       anthropic — ANTHROPIC_API_KEY (direct Anthropic API)
       vertex    — Gemini and Anthropic/Claude models via Vertex AI.
-                  Requires GOOGLE_CLOUD_PROJECT + ADC (CLOUDSDK_AUTH_*).
+                  Requires GOOGLE_CLOUD_PROJECT + ADC credential on the host
+                  (passed to the proxy via GCP_ADC_JSON; agent container holds
+                  only a stub ADC — real tokens are injected by paude-proxy).
                   Gemini: Pi's built-in google-vertex provider.
                   Claude: hhellbusch/pi-anthropic-vertex extension, installed into
-                  the image at build time, uses @anthropic-ai/vertex-sdk + ADC.
+                  the image at build time, uses @anthropic-ai/vertex-sdk.
       google    — Gemini via Google AI API (GEMINI_API_KEY)
       github    — GitHub Copilot via ~/.pi/agent/auth.json seeded from host.
                   Run `pi /login` once on the host to populate that file.
@@ -118,7 +120,7 @@ class PiAgent:
             lines += [
                 "",
                 "# Install pi-anthropic-vertex extension for Claude models via Vertex AI.",
-                "# Uses @anthropic-ai/vertex-sdk + ADC for auth.",
+                "# Auth: @anthropic-ai/vertex-sdk uses stub ADC; real tokens injected by paude-proxy.",
                 f"# Source: {_VERTEX_EXTENSION_REPO}",
                 f"RUN mkdir -p {container_home}/.pi/agent/extensions && \\",
                 f"    git clone {_VERTEX_EXTENSION_REPO} \\",
