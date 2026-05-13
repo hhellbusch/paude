@@ -102,6 +102,31 @@ DOMAIN_ALIASES: dict[str, list[str]] = {
     "slack": [
         ".slack.com",
     ],
+    # Research and transcript tooling used by workspace research scripts
+    "youtube": [
+        # Video browsing and oEmbed
+        "www.youtube.com",
+        "youtu.be",
+        # Transcript/caption API endpoint (used by youtube-transcript-api)
+        "youtubei.googleapis.com",
+    ],
+    "research": [
+        # General web research
+        "duckduckgo.com",
+        "html.duckduckgo.com",
+        # Wikipedia
+        "en.wikipedia.org",
+        "*.wikipedia.org",
+        # Academic
+        "arxiv.org",
+        "export.arxiv.org",
+        # Developer reference
+        "stackoverflow.com",
+        "developer.mozilla.org",
+        # Hacker News
+        "news.ycombinator.com",
+        "hacker-news.firebaseio.com",
+    ],
 }
 
 # Backward-compatible alias: pypi -> python
