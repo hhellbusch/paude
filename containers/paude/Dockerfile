@@ -92,18 +92,7 @@ RUN ARCH=$(uname -m) && \
     tini --version
 
 # Install pre-commit for automatic hook support in git-synced repos
-# Install research script dependencies (fetch-sources.py, fetch-transcript.py)
-# so they work without a manual pip install step in each new container.
-#   requests + beautifulsoup4 + markdownify  — HTML fetch and markdown conversion
-#   pdfplumber                               — PDF text extraction (optional but common)
-#   youtube-transcript-api                   — YouTube caption fetching
-RUN pip3.12 install \
-    pre-commit \
-    requests \
-    beautifulsoup4 \
-    markdownify \
-    pdfplumber \
-    youtube-transcript-api
+RUN pip3.12 install pre-commit
 
 # Install GitHub CLI (gh)
 RUN curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo -o /etc/yum.repos.d/gh-cli.repo && \
