@@ -100,12 +100,12 @@ RUN curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo -o /etc/yum.repos
     dnf clean all
 
 # Install OpenShift CLI (oc) from upstream tarball
-# Available at: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/<version>/oc-linux.tar.gz
+# Available at: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/<version>/openshift-client-linux.tar.gz
 # Extracts oc + kubectl binaries — compatible with CentOS Stream 10 (RHEL 10)
 # The agent needs oc for cluster management; this avoids proxy-limited downloads at runtime
 ARG OC_VERSION=4.22.0
 RUN curl -fsSL -o /tmp/oc-linux.tar.gz \
-        "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/oc-linux.tar.gz" && \
+        "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux.tar.gz" && \
     tar -xzf /tmp/oc-linux.tar.gz -C /tmp oc kubectl && \
     install -m 755 /tmp/oc /usr/local/bin/oc && \
     install -m 755 /tmp/kubectl /usr/local/bin/kubectl && \
