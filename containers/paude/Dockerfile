@@ -99,6 +99,17 @@ RUN curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo -o /etc/yum.repos
     dnf install -y gh && \
     dnf clean all
 
+# Install OpenShift CLI (oc) from upstream RPM
+# Available at: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/<version>/openshift-clients-*.rpm
+# This allows the agent to manage clusters without proxy-limited downloads
+ARG OC_VERSION=4.22.0
+RUN curl -fsSL -o /tmp/openshift-clients.rpm \
+        "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-clients-${OC_VERSION}-0-openstack-clients.rpm" && \
+    dnf install -y /tmp/openshift-clients.rpm && \
+    rm /tmp/openshift-clients.rpm && \
+    dnf clean all && \
+    oc version --client
+
 # Create non-root user with GID 0 for OpenShift compatibility
 RUN useradd -M -d /home/paude -s /bin/bash -g 0 paude && \
     umask 0002 && \
