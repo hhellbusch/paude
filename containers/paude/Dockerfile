@@ -99,16 +99,18 @@ RUN curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo -o /etc/yum.repos
     dnf install -y gh && \
     dnf clean all
 
-# Install OpenShift CLI (oc) from upstream RPM
-# Available at: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/<version>/openshift-clients-*.rpm
-# This allows the agent to manage clusters without proxy-limited downloads
+# Install OpenShift CLI (oc) from upstream tarball
+# Available at: https://mirror.openshift.com/pub/openshift-v4/clients/ocp/<version>/openshift-client-linux-rhel9-*.tar.gz
+# Using RHEL9 tarball — compatible with CentOS Stream 10 (RHEL 10)
+# The agent needs oc for cluster management; this avoids proxy-limited downloads at runtime
 ARG OC_VERSION=4.22.0
-RUN curl -fsSL -o /tmp/openshift-clients.rpm \
-        "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-clients-${OC_VERSION}-0-openstack-clients.rpm" && \
-    dnf install -y /tmp/openshift-clients.rpm && \
-    rm /tmp/openshift-clients.rpm && \
-    dnf clean all && \
-    oc version --client
+RUN curl -fsSL -o /tmp/oc-linux.tar.gz \
+        "https://mirror.openshift.com/pub/openshift-v4/clients/ocp/${OC_VERSION}/openshift-client-linux-rhel9-${OC_VERSION}.tar.gz" && \
+    tar -xzf /tmp/oc-linux.tar.gz -C /tmp oc kubectl && \
+    install -m 755 /tmp/oc /usr/local/bin/oc && \
+    install -m 755 /tmp/kubectl /usr/local/bin/kubectl && \
+    rm /tmp/oc-linux.tar.gz /tmp/oc /tmp/kubectl && \
+    oc version --client && kubectl version --client
 
 # Create non-root user with GID 0 for OpenShift compatibility
 RUN useradd -M -d /home/paude -s /bin/bash -g 0 paude && \
