@@ -285,6 +285,7 @@ def gather_proxy_credentials(
     agent_config: AgentConfig,
     *,
     gcp_adc_path: Path | None = None,
+    github_token: str | None = None,
 ) -> dict[str, str]:
     """Gather real credentials from the host for the proxy container.
 
@@ -292,9 +293,13 @@ def gather_proxy_credentials(
     environment. If a GCP ADC file exists locally, its content is
     passed as ``GCP_ADC_JSON`` so the proxy has it at startup.
 
+    If *github_token* is explicitly passed (e.g. via ``--github-token``),
+    it takes precedence over the host ``PAUDE_GITHUB_TOKEN`` env var.
+
     Args:
         agent_config: Agent configuration with secret_env_vars.
         gcp_adc_path: Path to local GCP ADC file, or None if absent.
+        github_token: Optional explicit GitHub PAT (overrides host env var).
 
     Returns:
         Dict of environment variables for the proxy container.
@@ -303,9 +308,12 @@ def gather_proxy_credentials(
 
     creds = build_secret_environment_from_config(agent_config)
 
-    gh_token = os.environ.get("PAUDE_GITHUB_TOKEN")
-    if gh_token:
-        creds["GH_TOKEN"] = gh_token
+    if github_token:
+        creds["GH_TOKEN"] = github_token
+    else:
+        gh_token = os.environ.get("PAUDE_GITHUB_TOKEN")
+        if gh_token:
+            creds["GH_TOKEN"] = gh_token
 
     adc_json: str | None = None
     if gcp_adc_path is not None:
