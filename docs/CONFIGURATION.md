@@ -245,13 +245,34 @@ Or pass it explicitly for a single session:
 
 ```bash
 paude start --github-token ghp_yourtoken my-project
-paude connect --github-token ghp_yourtoken my-project
 ```
 
-The token is injected at connect time only:
-- **Podman**: passed as `-e GH_TOKEN=...` to `podman exec` (not stored in the container definition)
+The token is injected at **start/create time** (when the container is created or recreated):
+- **Podman**: passed as `-e GH_TOKEN=...` or via `--secret` (see below)
 - **OpenShift**: written to `/credentials/github_token` in the pod's tmpfs
 - `GH_CONFIG_DIR=/tmp/gh-config` ensures no cached host credentials are ever consulted
+
+**Token rotation**:
+
+The token can only be changed by **recreating the session** (`paude start`), not by connecting to an existing one:
+
+```bash
+# To update the token, you MUST recreate the session:
+paude start my-project --github-token ghp_newtoken
+
+# Connecting to a running session does NOT update the token:
+paude connect my-project --github-token ghp_newtoken  # NO-OP: token not updated
+```
+
+**Why `connect --github-token` is a no-op**:
+
+`paude connect` only attaches to an already-running container. The container's environment variables (including `GH_TOKEN`) were set when the container was created by `paude start`. Connecting cannot change them — the token must be updated at recreate time.
+
+This is by design: connecting to a running session is a fire-and-attach operation that does not modify any container state.
+
+**Runtime credential updates**:
+
+Paude does not support updating credentials in a running container without recreation. For the proxy layer, there is no hot-reload of credential values (`GH_TOKEN`, etc.) — the proxy reads them once at startup. Any credential rotation requires recreating the session via `paude start`.
 
 **Security notes**:
 - The host's `GH_TOKEN` environment variable is **never** auto-propagated to the container
