@@ -214,12 +214,16 @@ class PodmanBackend:
 
         return local_gcp_adc_path()
 
-    def _gather_proxy_credentials(self, agent: Agent) -> dict[str, str]:
+    def _gather_proxy_credentials(
+        self, agent: Agent, github_token: str | None = None
+    ) -> dict[str, str]:
         """Gather real credentials from host environment for the proxy container."""
         from paude.backends.shared import gather_proxy_credentials
 
         return gather_proxy_credentials(
-            agent.config, gcp_adc_path=self._local_adc_path()
+            agent.config,
+            gcp_adc_path=self._local_adc_path(),
+            github_token=github_token,
         )
 
     def _inject_stub_credentials(self, cname: str) -> None:
@@ -516,6 +520,11 @@ class PodmanBackend:
 
         print(f"Starting session '{name}'...", file=sys.stderr)
 
+        proxy_creds = self._gather_proxy_credentials(agent)
+        if github_token:
+            proxy_creds["GH_TOKEN"] = github_token
+        self._proxy.start_if_needed(name, credentials=proxy_creds)
+
         agent = self._start_session_containers(name, cname)
 
         self._start_port_forward(name, agent)
@@ -567,6 +576,8 @@ class PodmanBackend:
         # Ensure proxy is running (recreates if missing)
         agent = self._get_session_agent(name)
         proxy_creds = self._gather_proxy_credentials(agent)
+        if github_token:
+            proxy_creds["GH_TOKEN"] = github_token
         self._proxy.start_if_needed(name, credentials=proxy_creds)
         self._proxy.distribute_ca_cert(name)
 
