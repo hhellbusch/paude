@@ -11,7 +11,7 @@ The container intentionally restricts certain operations:
 | `~/.gitconfig` | read-only | Git identity |
 | SSH keys | not mounted | Prevents git push via SSH |
 | GitHub CLI config | not mounted | Prevents cached host credentials |
-| `GH_TOKEN` (host) | never propagated | Use `PAUDE_GITHUB_TOKEN` or `--github-token` on `paude start` (not `connect` — see docs) |
+| `GH_TOKEN` (host) | never propagated | Use `PAUDE_GITHUB_TOKEN` or `--github-token` on start/connect |
 | Git credentials | not mounted | Prevents HTTPS git push |
 
 ## Verified Attack Vectors
@@ -58,19 +58,6 @@ These risks are accepted by design:
 1. **Workspace destruction**: The agent can delete files including `.git`. Mitigation: push to remote before autonomous sessions.
 2. **Secrets readable**: `.env` files in workspace are readable. Mitigation: network filtering prevents exfiltration; don't use `--allowed-domains all` with sensitive workspaces.
 3. **No audit logging**: Commands executed aren't logged. This is a forensics gap, not a security breach vector.
-
-## Proxy Credential Reload
-
-The paude proxy reads credential environment variables (`GH_TOKEN`, `ANTHROPIC_API_KEY`, etc.) **once at startup** and hardcodes them into its credential injection engine. There is no hot-reload mechanism:
-
-- No `SIGHUP` handler to re-read credentials
-- No file watcher on the credentials source
-- No HTTP endpoint to push updated credentials
-- No env var change detection
-
-To rotate credentials in a running proxy, the session must be recreated (`paude start`), which stops and recreates the proxy container with the new values.
-
-**Why this design**: Simplicity and security — the proxy has a single immutable configuration loaded at startup, minimizing attack surface for credential theft.
 
 ## Unsupported devcontainer Properties (Security)
 
