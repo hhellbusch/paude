@@ -13,6 +13,7 @@ from paude.cli.helpers import (
     _auto_select_session,
     _parse_copy_path,
     find_session_backend,
+    record_session_access,
 )
 
 
@@ -110,6 +111,7 @@ def session_cp(
 
     # Execute copy
     try:
+        record_session_access(session_name)
         if copy_direction == "to":
             backend_obj.copy_to_session(session_name, src_path, remote_path)
             typer.echo(f"Copied '{src_path}' -> '{session_name}:{remote_path}'")

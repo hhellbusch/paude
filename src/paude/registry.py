@@ -16,6 +16,17 @@ from paude.config.user_config import _paude_config_dir
 logger = logging.getLogger(__name__)
 
 
+def format_session_date(value: str | None) -> str:
+    """Format an ISO timestamp for tabular session list output."""
+    if not value:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d")
+    except ValueError:
+        return value[:10] if len(value) >= 10 else "-"
+
+
 @dataclass
 class RegistryEntry:
     """A session entry persisted in the local registry.
@@ -26,6 +37,7 @@ class RegistryEntry:
         workspace: Resolved absolute path as string.
         agent: Agent name (e.g. "claude", "gemini").
         created_at: ISO timestamp of session creation.
+        last_accessed_at: ISO timestamp of last CLI access, if recorded.
         openshift_context: OpenShift kubeconfig context, if applicable.
         openshift_namespace: OpenShift namespace, if applicable.
         engine: Container engine binary ("podman" or "docker").
@@ -43,6 +55,7 @@ class RegistryEntry:
     ssh_key: str | None = None
     remote_config_dir: str | None = None
     paude_version: str | None = None
+    last_accessed_at: str | None = None
 
     def to_session(self, status: str = "unknown") -> Session:
         """Convert this entry to a Session object."""
@@ -120,12 +133,14 @@ class SessionRegistry:
         engine = (
             session.backend_type if is_local_backend(session.backend_type) else "podman"
         )
+        now = datetime.now(UTC).isoformat()
+        existing = entries.get(session.name)
         entries[session.name] = RegistryEntry(
             name=session.name,
             backend_type=session.backend_type,
             workspace=str(session.workspace),
             agent=session.agent,
-            created_at=session.created_at or datetime.now(UTC).isoformat(),
+            created_at=session.created_at or now,
             openshift_context=openshift_context,
             openshift_namespace=openshift_namespace,
             engine=engine,
@@ -133,7 +148,17 @@ class SessionRegistry:
             ssh_key=ssh_key,
             remote_config_dir=remote_config_dir,
             paude_version=paude_version,
+            last_accessed_at=existing.last_accessed_at if existing else now,
         )
+        self._save(entries)
+
+    def touch_access(self, name: str) -> None:
+        """Record that the user accessed a session via the CLI."""
+        entries = self.load()
+        entry = entries.get(name)
+        if entry is None:
+            return
+        entry.last_accessed_at = datetime.now(UTC).isoformat()
         self._save(entries)
 
     def unregister(self, name: str) -> None:

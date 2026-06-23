@@ -13,6 +13,7 @@ from paude.cli.helpers import (
     _auto_select_session,
     _get_backend_instance,
     find_session_backend,
+    record_session_access,
 )
 from paude.session_discovery import resolve_session_for_backend
 
@@ -67,6 +68,7 @@ def session_start(
         if result:
             backend, backend_obj = result
             try:
+                record_session_access(name)
                 exit_code = backend_obj.start_session(name, github_token=resolved_token)
                 raise typer.Exit(exit_code)
             except Exception as e:
@@ -90,6 +92,7 @@ def session_start(
             multi_hint_format="  paude start {name}  # {backend_type}, {status}",
         )
         typer.echo(f"Starting '{session.name}' ({session.backend_type})...")
+        record_session_access(session.name)
         exit_code = backend_obj.start_session(session.name, github_token=resolved_token)
         raise typer.Exit(exit_code)
 
@@ -105,6 +108,7 @@ def session_start(
             raise typer.Exit(1)
 
     try:
+        record_session_access(name)
         exit_code = backend_instance.start_session(name, github_token=resolved_token)
         raise typer.Exit(exit_code)
     except SessionNotFoundError as e:

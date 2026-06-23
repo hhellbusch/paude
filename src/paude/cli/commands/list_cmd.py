@@ -60,12 +60,16 @@ def session_list(
         return
 
     from paude import __version__
+    from paude.registry import format_session_date
+
+    registry_entries = registry.load()
 
     # Print header
     typer.echo(
-        f"{'NAME':<25} {'BACKEND':<12} {'STATUS':<12} {'VERSION':<12} {'WORKSPACE':<40}"
+        f"{'NAME':<25} {'BACKEND':<12} {'STATUS':<12} {'VERSION':<12} "
+        f"{'CREATED':<10} {'ACCESSED':<10} {'WORKSPACE':<40}"
     )
-    typer.echo("-" * 102)
+    typer.echo("-" * 127)
 
     for session in all_sessions:
         workspace_str = str(session.workspace)
@@ -74,8 +78,13 @@ def session_list(
         version_str = session.version or "-"
         if session.version and session.version != __version__:
             version_str += "*"
+        entry = registry_entries.get(session.name)
+        created_at = session.created_at or (entry.created_at if entry else None)
+        last_accessed_at = entry.last_accessed_at if entry else None
         line = (
             f"{session.name:<25} {session.backend_type:<12} "
-            f"{session.status:<12} {version_str:<12} {workspace_str:<40}"
+            f"{session.status:<12} {version_str:<12} "
+            f"{format_session_date(created_at):<10} "
+            f"{format_session_date(last_accessed_at):<10} {workspace_str:<40}"
         )
         typer.echo(line)

@@ -9,6 +9,7 @@ from paude.backends.base import Session
 from paude.registry import (
     RegistryEntry,
     SessionRegistry,
+    format_session_date,
     merge_registry_with_live,
 )
 
@@ -186,6 +187,58 @@ class TestSessionRegistry:
         entries = registry.load()
         assert "s1" in entries
         assert entries["s1"].openshift_context is None
+        assert entries["s1"].last_accessed_at is None
+
+    def test_register_sets_last_accessed_at(self, tmp_path: Path) -> None:
+        path = tmp_path / "sessions.json"
+        registry = SessionRegistry(path=path)
+        registry.register(_make_session("s1"))
+
+        entry = registry.get("s1")
+        assert entry is not None
+        assert entry.last_accessed_at is not None
+
+    def test_register_preserves_last_accessed_on_update(self, tmp_path: Path) -> None:
+        path = tmp_path / "sessions.json"
+        registry = SessionRegistry(path=path)
+        registry.register(_make_session("s1", backend_type="podman"))
+        original = registry.get("s1")
+        assert original is not None
+        registry.touch_access("s1")
+        touched = registry.get("s1")
+        assert touched is not None
+        registry.register(_make_session("s1", backend_type="openshift"))
+        updated = registry.get("s1")
+        assert updated is not None
+        assert updated.last_accessed_at == touched.last_accessed_at
+
+    def test_touch_access_updates_timestamp(self, tmp_path: Path) -> None:
+        path = tmp_path / "sessions.json"
+        registry = SessionRegistry(path=path)
+        registry.register(_make_session("s1"))
+        before = registry.get("s1")
+        assert before is not None
+        registry.touch_access("s1")
+        after = registry.get("s1")
+        assert after is not None
+        assert after.last_accessed_at is not None
+        assert after.last_accessed_at >= before.last_accessed_at  # type: ignore[operator]
+
+    def test_touch_access_missing_session_is_noop(self, tmp_path: Path) -> None:
+        path = tmp_path / "sessions.json"
+        registry = SessionRegistry(path=path)
+        registry.touch_access("missing")
+
+
+class TestFormatSessionDate:
+    """Tests for format_session_date."""
+
+    def test_formats_iso_timestamp(self) -> None:
+        assert format_session_date("2026-03-23T10:00:00Z") == "2026-03-23"
+
+    def test_returns_dash_for_missing(self) -> None:
+        assert format_session_date(None) == "-"
+        assert format_session_date("") == "-"
 
 
 class TestRegistryEntryToSession:

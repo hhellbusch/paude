@@ -12,6 +12,7 @@ from paude.cli.helpers import (
     _auto_select_session,
     _get_backend_instance,
     find_session_backend,
+    record_session_access,
 )
 from paude.session_discovery import resolve_session_for_backend
 
@@ -65,6 +66,7 @@ def session_connect(
         result = find_session_backend(name, openshift_context, openshift_namespace)
         if result:
             backend, backend_obj = result
+            record_session_access(name)
             exit_code = backend_obj.connect_session(name, github_token=resolved_token)
             raise typer.Exit(exit_code)
         else:
@@ -89,6 +91,7 @@ def session_connect(
             multi_hint_format="  paude connect {name}  # {backend_type}, {workspace}",
         )
         typer.echo(f"Connecting to '{session.name}' ({session.backend_type})...")
+        record_session_access(session.name)
         exit_code = backend_obj.connect_session(
             session.name, github_token=resolved_token
         )
@@ -105,5 +108,6 @@ def session_connect(
         if not name:
             raise typer.Exit(1)
 
+    record_session_access(name)
     exit_code = backend_instance.connect_session(name, github_token=resolved_token)
     raise typer.Exit(exit_code)

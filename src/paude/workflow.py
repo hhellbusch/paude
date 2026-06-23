@@ -167,6 +167,10 @@ def harvest_session(
 
     _validate_harvest_branch(branch_name)
 
+    from paude.cli.helpers import record_session_access
+
+    record_session_access(session_name)
+
     backend_type, backend, session = _find_backend_and_session(
         session_name, openshift_context, openshift_namespace
     )
@@ -282,7 +286,10 @@ def status_sessions(
     )
 
     if session_name:
+        from paude.cli.helpers import record_session_access
         from paude.transport.ssh import SSH_STATUS_TIMEOUT
+
+        record_session_access(session_name)
 
         _btype, found_backend, found_session = _find_backend_and_session(
             session_name,
@@ -396,6 +403,10 @@ def reset_session(
     openshift_namespace: str | None = None,
 ) -> None:
     """Reset a session's workspace for a new task."""
+    from paude.cli.helpers import record_session_access
+
+    record_session_access(session_name)
+
     _backend_type, backend, session = _find_backend_and_session(
         session_name, openshift_context, openshift_namespace
     )
@@ -577,6 +588,10 @@ def tail_session(
     In follow mode (``-f``), polls at ``interval`` seconds and prints new
     lines as they appear, similar to ``tail -f``. Exits cleanly on Ctrl+C.
     """
+    from paude.cli.helpers import record_session_access
+
+    record_session_access(session_name)
+
     _backend_type, backend, _session = _find_backend_and_session(
         session_name, openshift_context, openshift_namespace
     )
@@ -683,7 +698,10 @@ def wait_session(
         0 — session reached Idle state
         1 — timed out before reaching Idle
     """
+    from paude.cli.helpers import record_session_access
     from paude.session_status import get_session_enrichment
+
+    record_session_access(session_name)
 
     _backend_type, backend, session = _find_backend_and_session(
         session_name, openshift_context, openshift_namespace

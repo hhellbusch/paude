@@ -21,6 +21,13 @@ from paude.session_discovery import (
 )
 
 
+def record_session_access(session_name: str) -> None:
+    """Record that the user accessed a session via the CLI."""
+    from paude.registry import SessionRegistry
+
+    SessionRegistry().touch_access(session_name)
+
+
 def find_session_backend(
     session_name: str,
     openshift_context: str | None = None,

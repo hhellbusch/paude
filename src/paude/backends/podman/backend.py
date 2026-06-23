@@ -474,7 +474,12 @@ class PodmanBackend:
             else:
                 print(f"  Installed {spec}", file=sys.stderr)
 
-    def _start_session_containers(self, name: str, cname: str) -> Agent:
+    def _start_session_containers(
+        self,
+        name: str,
+        cname: str,
+        github_token: str | None = None,
+    ) -> Agent:
         """Start proxy and agent containers, inject credentials and config.
 
         Shared startup sequence used by both interactive and headless paths.
@@ -484,6 +489,8 @@ class PodmanBackend:
         """
         agent = self._get_session_agent(name)
         proxy_creds = self._gather_proxy_credentials(agent)
+        if github_token:
+            proxy_creds["GH_TOKEN"] = github_token
         self._proxy.start_if_needed(name, credentials=proxy_creds)
         self._runner.start_container(cname)
         self._fix_volume_permissions(cname)
@@ -593,16 +600,11 @@ class PodmanBackend:
                 f"Session '{name}' is already running, connecting...",
                 file=sys.stderr,
             )
-            return self.connect_session(name)
+            return self.connect_session(name, github_token=github_token)
 
         print(f"Starting session '{name}'...", file=sys.stderr)
 
-        proxy_creds = self._gather_proxy_credentials(agent)
-        if github_token:
-            proxy_creds["GH_TOKEN"] = github_token
-        self._proxy.start_if_needed(name, credentials=proxy_creds)
-
-        agent = self._start_session_containers(name, cname)
+        agent = self._start_session_containers(name, cname, github_token=github_token)
 
         self._start_port_forward(name, agent)
         self._print_port_urls(name, agent)

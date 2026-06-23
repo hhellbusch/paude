@@ -24,7 +24,7 @@ paude
 | `upgrade` | Upgrades session to current paude version (preserves data) |
 | `remote` | Manages git remotes for code sync |
 | `delete` | Removes all resources including volume |
-| `list` | Shows all sessions with version info |
+| `list` | Shows all sessions with version, creation, and last-access info |
 | `status` | Shows enriched session status (activity, state, summary) |
 | `harvest` | Pulls agent changes into a local branch, optionally creates a PR |
 | `reset` | Resets session workspace and clears conversation history |

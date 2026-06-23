@@ -356,6 +356,27 @@ class TestListShowsVersion:
 
         assert result.exit_code == 0
         assert "VERSION" in result.stdout
+        assert "CREATED" in result.stdout
+        assert "ACCESSED" in result.stdout
+
+    @patch("paude.session_discovery.collect_all_sessions")
+    def test_list_shows_created_and_accessed_dates(
+        self, mock_collect: MagicMock, tmp_path: Path
+    ) -> None:
+        """paude list shows formatted created and last-accessed dates."""
+        session = _make_session("test-session", status="running", version="0.12.0")
+        mock_collect.return_value = ([(session, MagicMock())], {"podman"})
+
+        registry_path = tmp_path / "sessions.json"
+        registry = SessionRegistry(path=registry_path)
+        registry.register(session, paude_version="0.12.0")
+        registry.touch_access("test-session")
+
+        with patch("paude.registry._registry_path", return_value=registry_path):
+            result = runner.invoke(app, ["list"])
+
+        assert result.exit_code == 0
+        assert "2026-01-01" in result.stdout
 
     @patch("paude.session_discovery.collect_all_sessions")
     def test_list_shows_outdated_indicator(self, mock_collect: MagicMock) -> None:

@@ -214,6 +214,7 @@ def session_upgrade(
     if name in entries:
         entries[name].paude_version = __version__
         registry._save(entries)
+    registry.touch_access(name)
 
     typer.echo(f"Session '{name}' upgraded to version {__version__}.")
 
